@@ -1,0 +1,6 @@
+{
+  "customer_id": "CUST-2042",
+  "domain": "customer_success",
+  "source_type": "transcript",
+  "transcript": "CSM: Thanks for joining — I wanted to check in on adoption.\n\nAlex (Customer): Honestly we're frustrated. Support tickets are up 40% and usage dropped the last two weeks.\n\nCSM: Which workflows are breaking for your team?\n\nAlex (Customer): Finance users can't get reports out on time. When does the renewal conversation start? We're at-risk if this continues.\n\nCSM: Action item — schedule a recovery working session this week.\n\nAlex (Customer): Who from product can join to review the failing workflow?"
+}

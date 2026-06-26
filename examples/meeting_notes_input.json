@@ -1,0 +1,8 @@
+{
+  "customer_id": "CUST-1001",
+  "domain": "saas_sales",
+  "source_type": "meeting_notes",
+  "meeting_date": "2026-06-24",
+  "meeting_context": "Discovery call — Acme Corp enterprise expansion",
+  "meeting_notes": "Attendees: Jordan Lee (VP Ops), Priya Shah (IT Security), Sales rep\n\nDiscussion:\n- VP Ops confirmed 4hr/week manual reporting pain; wants time-to-report under 15 minutes.\n- No internal champion identified yet — Jordan is interested but not the final signer.\n- Priya raised SSO + security review requirements before any pilot.\n- Competitor X mentioned as incumbent for analytics.\n\nOpen questions:\n- What is the budget range for Q3?\n- Who is the economic buyer?\n\nAction items:\n- Send MAP draft within 48 hours\n- Follow up with security packet for Priya"
+}

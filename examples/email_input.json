@@ -1,0 +1,8 @@
+{
+  "customer_id": "CUST-1001",
+  "domain": "saas_sales",
+  "source_type": "email",
+  "email_subject": "Re: Reporting delays and next steps",
+  "email_from": "Jordan Lee, VP Operations <jordan.lee@acmecorp.com>",
+  "email_body": "Thanks for the demo yesterday. Our team is still spending ~4 hours each week on manual reporting — it's a real bottleneck.\n\nWe're also evaluating Competitor X for analytics. IT has asked about SSO and SOC2 before we can pilot.\n\nWho on your side can help us build an internal business case? We don't have a clear champion yet.\n\nCan we get a mutual action plan by end of month?"
+}

@@ -45,14 +45,33 @@ def _to_jsonable(obj: Any) -> Any:
 def workflow_start(payload: Dict[str, Any]) -> JSONResponse:
     """Ingest an interaction + gather org context + produce next-best actions.
 
+    Accepts flexible input:
+    - `interaction_text` (raw)
+    - Email: `email_subject`, `email_from`, `email_body`
+    - Meeting notes: `meeting_date`, `meeting_context`, `meeting_notes`
+    - Transcript: `transcript` (Speaker: line format)
+
     Human review gate: returned actions are *proposed* and not executed.
     """
-    required = ["customer_id", "interaction_text"]
-    missing_fields = [f for f in required if f not in payload]
-    if missing_fields:
+    if "customer_id" not in payload:
         return JSONResponse(
             status_code=400,
-            content={"error": "Missing required fields", "missing": missing_fields},
+            content={"error": "Missing required fields", "missing": ["customer_id"]},
+        )
+
+    text_fields = (
+        "interaction_text",
+        "email_body",
+        "meeting_notes",
+        "transcript",
+    )
+    if not any(payload.get(f) for f in text_fields):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Missing interaction content",
+                "hint": "Provide interaction_text, email_body, meeting_notes, or transcript",
+            },
         )
 
     result = planner.run_workflow(payload)
