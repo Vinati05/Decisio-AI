@@ -28,14 +28,14 @@
 
 **Goal**: Replace heavy mocking with actual retrieval to show enterprise-grade platform capability.
 
-- [ ] Introduce vector embeddings + simple vector store (ChromaDB or FAISS) for knowledge base.
-- [ ] Create a dedicated `RetrieverAgent` (or tool) that Planner can orchestrate.
-- [ ] Support multiple knowledge sources (e.g., load from JSON/YAML files or folder).
-- [ ] Add basic CRM simulation (SQLite or enhanced in-memory with query capability).
-- [ ] Implement configurable business rules per domain (YAML config).
-- [ ] Update Planner to dynamically decide retrieval strategy based on interaction.
-- [ ] Add retrieval evidence in explanations (source + relevance score).
-- [ ] Update README with retrieval demo examples.
+- [x] Introduce vector embeddings + simple vector store (ChromaDB or FAISS) for knowledge base.
+- [x] Create a dedicated `RetrieverAgent` (or tool) that Planner can orchestrate.
+- [x] Support multiple knowledge sources (e.g., load from JSON/YAML files or folder).
+- [x] Add basic CRM simulation (SQLite or enhanced in-memory with query capability).
+- [x] Implement configurable business rules per domain (YAML config).
+- [x] Update Planner to dynamically decide retrieval strategy based on interaction.
+- [x] Add retrieval evidence in explanations (source + relevance score).
+- [x] Update README with retrieval demo examples.
 
 
 

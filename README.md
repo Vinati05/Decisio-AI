@@ -147,3 +147,63 @@ curl -s http://localhost:8000/memory/CUST-1001 | python3 -m json.tool
 3. **Customer Success — tickets + usage dip** → 30-day recovery plan, health narrative, workflow discovery session
 
 Re-run the same customer after approval to see memory-biased confidence and analysis adjustments.
+
+---
+
+## Layer 2 Completed: Real Retrieval & Multi-Source Reasoning
+
+Layer 2 modernizes the knowledge base with real file ingestion, an SQLite CRM database simulation, dynamic configurable rules, and a **Dual-Engine Vector Store** featuring ChromaDB and Sentence-Transformers (with a zero-dependency, pure-Python TF-IDF cosine-similarity fallback).
+
+### What improved
+
+| Area | Change |
+|------|--------|
+| **Knowledge Base Ingestion** | Dynamic loaders in `KnowledgeBase` parse real files from `backend/knowledge/` (supporting YAML/JSON structure) for articles, playbooks, and product documentation. |
+| **Dual-Engine Vector Store** | Ephemeral ChromaDB client embeds and indexes documents using `all-MiniLM-L6-v2`. If ChromaDB/PyTorch fail to install or initialize, the system seamlessly falls back to a pure-Python TF-IDF vectorizer + Cosine Similarity search. |
+| **SQLite CRM Simulator** | CRM updates are seeded and stored in a local SQLite database (`crm.db`) on startup. Planner queries this simulator via customer ID to trace actual account history. |
+| **Configurable Business Rules** | Domain rules, priorities, minimum relevance filters, and confidence clamps are managed in `backend/config/business_rules.yaml`. The Planner respects these parameters. |
+| **Grounded Citations & Relevance** | Rationale for recommendations explicitly cites retrieved documents and their relevance score (e.g., `PB-SAAS-03 (Relevance: 0.51)`). |
+
+### Example Query and Retrieved Evidence
+
+Request:
+```bash
+curl -s -X POST http://127.0.0.1:8000/workflow/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "CUST-1001",
+    "domain": "saas_sales",
+    "interaction_text": "discovery and mutual action plan security SOC2 review SSO crm sync competitor"
+  }' | python3 -m json.tool
+```
+
+Sample output:
+```json
+{
+  "next_best_actions": [
+    {
+      "title": "Initiate security fast-track packet (SOC2 + SSO)",
+      "confidence": 0.73,
+      "evidence": [
+        {
+          "label": "Mutual action plan (MAP) after discovery",
+          "excerpt": "...",
+          "source": "playbook:PB-SAAS-03",
+          "relevance": 0.51
+        }
+      ],
+      "rationale": "Delayed security responses are the #2 slip reason (PB-SAAS-03). DOC-SAAS-SSO shows 8-day average review when packet is complete upfront. Grounded in: PB-SAAS-03 (Relevance: 0.51), CRM-SAAS-2 (Relevance: 1.00)."
+    }
+  ]
+}
+```
+
+### New Setup Instructions
+
+All dependencies (including `chromadb`, `sentence-transformers`, `PyYAML`, `scikit-learn`, `numpy`) are defined in `backend/requirements.txt`.
+To start the services:
+```bash
+docker compose up --build
+```
+On startup, the backend automatically initializes and seeds `crm.db` and downloads/sets up the semantic search embeddings model. If the environment does not support compiling/downloading large machine learning wheels, it falls back to the lightweight built-in TF-IDF engine.
+

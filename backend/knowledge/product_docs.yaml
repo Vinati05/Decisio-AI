@@ -1,0 +1,36 @@
+# Product Documentation
+
+saas_sales:
+  - id: "DOC-SAAS-API"
+    title: "CRM sync integration"
+    excerpt: >
+      Bi-directional sync of meeting outcomes, MAP milestones, and champion notes into
+      Salesforce/HubSpot custom fields. Keeps stakeholders aligned and reduces
+      time-to-follow-up by ~40% when auto-logged.
+    tags: ["crm-sync", "salesforce", "hubspot"]
+  - id: "DOC-SAAS-REPORT"
+    title: "Executive reporting module"
+    excerpt: >
+      Pre-built dashboards cut report generation from 4 hours to 15 minutes.
+      Customers cite reporting speed as top-3 buying criterion in 68% of won deals.
+    tags: ["reporting", "analytics", "dashboard"]
+  - id: "DOC-SAAS-SSO"
+    title: "Enterprise SSO & audit trail"
+    excerpt: >
+      SAML/OIDC SSO with full audit logging satisfies most enterprise security reviews.
+      Average security review cycle: 8 business days when packet is complete upfront.
+    tags: ["sso", "security", "saml", "oidc"]
+
+customer_success:
+  - id: "DOC-CS-HEALTH"
+    title: "Health dashboard"
+    excerpt: >
+      Shows usage trends, feature adoption heatmaps, and correlates them with support
+      tickets and onboarding milestones. CSMs use it to prioritize outreach.
+    tags: ["dashboard", "health-score", "analytics"]
+  - id: "DOC-CS-ADOPT"
+    title: "Adoption milestone tracker"
+    excerpt: >
+      Tracks customer-defined milestones (e.g., 80% user activation by day 30).
+      Accounts hitting milestones renew at 91% vs 71% when milestones are missed.
+    tags: ["milestones", "onboarding", "retention"]

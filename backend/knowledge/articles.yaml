@@ -1,0 +1,38 @@
+# Knowledge Base Articles
+
+saas_sales:
+  - id: "KB-SAAS-01"
+    title: "Discovery: qualify pain + champion"
+    excerpt: >
+      Focus on pain severity (1-10), urgency, current workaround cost, and identify
+      a champion who owns the outcome. Deals without a named champion stall 2.3x longer
+      in mid-funnel stages per internal win/loss analysis.
+    tags: ["discovery", "champion", "qualification"]
+  - id: "KB-SAAS-02"
+    title: "Multi-threading enterprise deals"
+    excerpt: >
+      Map economic buyer, technical evaluator, and end-user sponsor before proposal.
+      Single-threaded deals (>60 days) convert at 18% vs 41% when 3+ stakeholders
+      are engaged with tailored value narratives.
+    tags: ["stakeholders", "multi-threading", "deal-velocity"]
+  - id: "KB-SAAS-03"
+    title: "Competitive displacement playbook"
+    excerpt: >
+      When a competitor is named, document their gaps on reporting latency, integration
+      depth, and TCO. Position a proof-of-value sprint rather than a feature bake-off -
+      POV-to-close rate is 34% higher than RFP-led cycles.
+    tags: ["competitor", "pov", "displacement"]
+
+customer_success:
+  - id: "KB-CS-01"
+    title: "Health scoring: leading indicators"
+    excerpt: >
+      Usage drops >15% MoM and support escalations within 14 days often precede churn
+      by 6-8 weeks. Trigger recovery outreach when health score falls below 65.
+    tags: ["health-score", "churn-risk", "usage-drop"]
+  - id: "KB-CS-02"
+    title: "Executive business review cadence"
+    excerpt: >
+      Quarterly EBRs with ROI proof points reduce churn risk by ~22% for accounts
+      above $50K ARR. Include adoption milestones, support trend, and expansion signals.
+    tags: ["ebr", "roi", "retention"]

@@ -1,0 +1,31 @@
+# Best Practice Playbooks
+
+saas_sales:
+  - id: "PB-SAAS-01"
+    title: "Mutual action plan (MAP) after discovery"
+    excerpt: >
+      Within 48 hours of discovery, propose a 30/60-day MAP: named stakeholders,
+      success metrics (e.g., time-to-report), decision dates, and next meeting agenda.
+      MAP acceptance correlates with +25% win probability in enterprise segments.
+    tags: ["map", "mutual-action-plan", "process"]
+  - id: "PB-SAAS-02"
+    title: "Champion enablement kit"
+    excerpt: >
+      Provide champion with internal pitch deck, ROI one-pager, and security FAQ.
+      Champions who receive enablement close internal approvals 12 days faster on average.
+    tags: ["champion", "enablement", "roi"]
+  - id: "PB-SAAS-03"
+    title: "Security & procurement fast-track"
+    excerpt: >
+      If security review is mentioned, initiate SOC2/ISO packet and pre-fill questionnaire
+      within 5 business days. Delayed security responses are the #2 reason for slip in Q3-Q4.
+    tags: ["security", "soc2", "procurement", "sso"]
+
+customer_success:
+  - id: "PB-CS-01"
+    title: "At-risk account recovery"
+    excerpt: >
+      Reconfirm value drivers, execute a 30-day adoption plan with weekly check-ins,
+      and escalate internally with customer consent. Recovery plans executed within
+      10 days reduce churn probability by ~18%.
+    tags: ["recovery", "at-risk", "adoption"]

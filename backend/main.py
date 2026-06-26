@@ -7,9 +7,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 try:
-    from backend.ai_platform import MemoryStore, MockKnowledge, PlannerAgent
+    from backend.ai_platform import MemoryStore, MockKnowledge, PlannerAgent, KnowledgeBase
 except ModuleNotFoundError:  # pragma: no cover - container fallback
-    from ai_platform import MemoryStore, MockKnowledge, PlannerAgent
+    from ai_platform import MemoryStore, MockKnowledge, PlannerAgent, KnowledgeBase
 
 app = FastAPI(
     title="Nexora Studio",
@@ -17,7 +17,10 @@ app = FastAPI(
 )
 
 memory_store = MemoryStore()
-knowledge = MockKnowledge()
+try:
+    knowledge = KnowledgeBase()
+except Exception:
+    knowledge = MockKnowledge()
 planner = PlannerAgent(knowledge=knowledge, memory=memory_store)
 
 

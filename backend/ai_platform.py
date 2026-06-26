@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import re
 import uuid
+import os
+import math
+import sqlite3
+import yaml
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -135,6 +140,7 @@ class EvidenceItem:
     label: str
     excerpt: str
     source: str
+    relevance: float = 1.0
 
 
 @dataclass
@@ -549,10 +555,449 @@ class MockKnowledge:
         )
 
 
+class SimpleVectorStore:
+    def __init__(self) -> None:
+        self.documents: List[Dict[str, Any]] = []
+        self.vocab: List[str] = []
+        self.idf: Dict[str, float] = {}
+        self.doc_vectors: List[Dict[str, float]] = []
+
+    def add_documents(self, docs: List[Dict[str, Any]]) -> None:
+        self.documents.extend(docs)
+        self._build_index()
+
+    def _tokenize(self, text: str) -> List[str]:
+        return [w for w in re.findall(r'[a-zA-Z0-9_-]+', text.lower()) if len(w) >= 2]
+
+    def _build_index(self) -> None:
+        if not self.documents:
+            return
+        
+        doc_words = []
+        all_words = []
+        for doc in self.documents:
+            words = self._tokenize(doc["text"])
+            doc_words.append(Counter(words))
+            all_words.extend(words)
+
+        self.vocab = list(set(all_words))
+        num_docs = len(self.documents)
+
+        self.idf = {}
+        for word in self.vocab:
+            df = sum(1 for d in doc_words if word in d)
+            self.idf[word] = math.log(num_docs / (1 + df)) + 1.0
+
+        self.doc_vectors = []
+        for d in doc_words:
+            vector = {}
+            for word, tf in d.items():
+                vector[word] = tf * self.idf[word]
+            
+            norm = math.sqrt(sum(v**2 for v in vector.values()))
+            if norm > 0:
+                vector = {word: val / norm for word, val in vector.items()}
+            self.doc_vectors.append(vector)
+
+    def search(self, query: str, top_k: int = 3) -> List[Tuple[Dict[str, Any], float]]:
+        query_words = self._tokenize(query)
+        if not query_words or not self.doc_vectors:
+            return [(doc, 0.5) for doc in self.documents[:top_k]]
+
+        q_counter = Counter(query_words)
+        q_vector = {}
+        for word, tf in q_counter.items():
+            if word in self.idf:
+                q_vector[word] = tf * self.idf[word]
+
+        q_norm = math.sqrt(sum(v**2 for v in q_vector.values()))
+        if q_norm > 0:
+            q_vector = {word: val / q_norm for word, val in q_vector.items()}
+
+        results = []
+        for idx, d_vector in enumerate(self.doc_vectors):
+            similarity = 0.0
+            for word, val in q_vector.items():
+                if word in d_vector:
+                    similarity += val * d_vector[word]
+            
+            scaled_sim = similarity
+            if scaled_sim > 0:
+                scaled_sim = 0.40 + (scaled_sim * 0.55)
+            else:
+                scaled_sim = 0.10
+            
+            results.append((self.documents[idx], round(scaled_sim, 2)))
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k]
+
+
+class SQLiteCRMSimulator:
+    def __init__(self, db_path: str = "crm.db") -> None:
+        self.db_path = db_path
+        self.conn = None
+        self._init_db()
+
+    def _init_db(self) -> None:
+        try:
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        except Exception:
+            self.conn = sqlite3.connect(":memory:", check_same_thread=False)
+        
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS crm_history (
+                customer_id TEXT,
+                id TEXT PRIMARY KEY,
+                timestamp TEXT,
+                text TEXT,
+                domain TEXT
+            )
+        """)
+        self.conn.commit()
+
+    def seed_data(self, history_data: Dict[str, List[Dict[str, Any]]]) -> None:
+        cursor = self.conn.cursor()
+        for domain, items in history_data.items():
+            for item in items:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO crm_history (customer_id, id, timestamp, text, domain)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    item.get("customer_id", "CUST-1001"),
+                    item.get("id"),
+                    item.get("timestamp"),
+                    item.get("text"),
+                    domain
+                ))
+        self.conn.commit()
+
+    def query_by_customer_id(self, customer_id: str, domain: str) -> List[Dict[str, str]]:
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, timestamp, text FROM crm_history 
+            WHERE customer_id = ? AND domain = ?
+            ORDER BY timestamp DESC
+        """, (customer_id, domain))
+        rows = cursor.fetchall()
+        return [{"id": r[0], "timestamp": r[1], "text": r[2]} for r in rows]
+
+
+def load_business_rules(config_path: str = "config/business_rules.yaml") -> Dict[str, Any]:
+    default_rules = {
+        "saas_sales": {
+            "min_relevance_score": 0.50,
+            "base_confidence": {
+                "map": 0.82,
+                "champion": 0.79,
+                "security": 0.85,
+                "qualification": 0.80
+            },
+            "rules": {
+                "timeline_pressure_threshold_days": 30,
+                "sentiment_risk_flag": ["negative", "mixed"],
+                "weights": {
+                    "past_approval_bias": 0.05,
+                    "past_rejection_penalty": -0.10,
+                    "min_clamped_confidence": 0.40,
+                    "max_clamped_confidence": 0.98
+                }
+            }
+        },
+        "customer_success": {
+            "min_relevance_score": 0.45,
+            "base_confidence": {
+                "recovery_plan": 0.83,
+                "ebr_scheduling": 0.78,
+                "health_drilldown": 0.81,
+                "qualification": 0.70
+            },
+            "rules": {
+                "health_score_alert_threshold": 65,
+                "usage_drop_alert_percentage": 15,
+                "sentiment_risk_flag": ["negative"],
+                "weights": {
+                    "past_approval_bias": 0.04,
+                    "past_rejection_penalty": -0.08,
+                    "min_clamped_confidence": 0.35,
+                    "max_clamped_confidence": 0.95
+                }
+            }
+        }
+    }
+    
+    if not os.path.exists(config_path):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(base_dir, "config", "business_rules.yaml")
+        
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                rules = yaml.safe_load(f)
+                if rules and "domains" in rules:
+                    return rules["domains"]
+        except Exception as e:
+            print(f"Error loading business rules: {e}. Using defaults.")
+            
+    return default_rules
+
+
+try:
+    import chromadb
+    from sentence_transformers import SentenceTransformer
+    CHROMA_AVAILABLE = True
+except ImportError:
+    CHROMA_AVAILABLE = False
+
+
+class KnowledgeBase:
+    def __init__(self, knowledge_dir: str = "knowledge") -> None:
+        self.knowledge_dir = knowledge_dir
+        self.use_chroma = False
+        
+        self.articles: Dict[str, List[Dict[str, Any]]] = {}
+        self.playbooks: Dict[str, List[Dict[str, Any]]] = {}
+        self.product_docs: Dict[str, List[Dict[str, Any]]] = {}
+        self.crm_seed: Dict[str, List[Dict[str, Any]]] = {}
+        
+        self._load_knowledge_files()
+        
+        self.simple_store = SimpleVectorStore()
+        self._index_documents_simple()
+        
+        if CHROMA_AVAILABLE:
+            self._init_chromadb()
+
+    def _load_knowledge_files(self) -> None:
+        dir_path = self.knowledge_dir
+        if not os.path.exists(dir_path):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            dir_path = os.path.join(base_dir, self.knowledge_dir)
+
+        mock_fallback = MockKnowledge()
+        
+        self.articles = self._load_yaml_file(os.path.join(dir_path, "articles.yaml"), mock_fallback._articles)
+        self.playbooks = self._load_yaml_file(os.path.join(dir_path, "playbooks.yaml"), mock_fallback._playbooks)
+        self.product_docs = self._load_yaml_file(os.path.join(dir_path, "product_docs.yaml"), mock_fallback._product_docs)
+        self.crm_seed = self._load_yaml_file(os.path.join(dir_path, "crm_history.yaml"), mock_fallback._crm_history)
+
+    def _load_yaml_file(self, filepath: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                    if data:
+                        return data
+            except Exception as e:
+                print(f"Error loading {filepath}: {e}")
+        return fallback
+
+    def _index_documents_simple(self) -> None:
+        docs_to_index = []
+        
+        for domain, items in self.articles.items():
+            for item in items:
+                docs_to_index.append({
+                    "id": item.get("id"),
+                    "text": f"{item.get('title', '')} {item.get('excerpt', '')}",
+                    "metadata": {
+                        "type": "knowledge_article",
+                        "domain": domain,
+                        "title": item.get("title"),
+                        "excerpt": item.get("excerpt"),
+                        "tags": item.get("tags", [])
+                    }
+                })
+                
+        for domain, items in self.playbooks.items():
+            for item in items:
+                docs_to_index.append({
+                    "id": item.get("id"),
+                    "text": f"{item.get('title', '')} {item.get('excerpt', '')}",
+                    "metadata": {
+                        "type": "playbook",
+                        "domain": domain,
+                        "title": item.get("title"),
+                        "excerpt": item.get("excerpt"),
+                        "tags": item.get("tags", [])
+                    }
+                })
+
+        for domain, items in self.product_docs.items():
+            for item in items:
+                docs_to_index.append({
+                    "id": item.get("id"),
+                    "text": f"{item.get('title', '')} {item.get('excerpt', '')}",
+                    "metadata": {
+                        "type": "product_doc",
+                        "domain": domain,
+                        "title": item.get("title"),
+                        "excerpt": item.get("excerpt"),
+                        "tags": item.get("tags", [])
+                    }
+                })
+                
+        self.simple_store.add_documents(docs_to_index)
+
+    def _init_chromadb(self) -> None:
+        try:
+            if hasattr(chromadb, "EphemeralClient"):
+                self.chroma_client = chromadb.EphemeralClient()
+            else:
+                self.chroma_client = chromadb.Client()
+            self.embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+            self.collection = self.chroma_client.create_collection(
+                name="decisio_knowledge",
+                metadata={"hnsw:space": "cosine"}
+            )
+            
+            ids = []
+            documents = []
+            metadatas = []
+            
+            for doc in self.simple_store.documents:
+                ids.append(doc["id"])
+                documents.append(doc["text"])
+                meta = doc["metadata"].copy()
+                if "tags" in meta:
+                    meta["tags"] = ",".join(meta["tags"])
+                metadatas.append(meta)
+                
+            embeddings = self.embed_model.encode(documents).tolist()
+            self.collection.add(
+                ids=ids,
+                documents=documents,
+                embeddings=embeddings,
+                metadatas=metadatas
+            )
+            self.use_chroma = True
+            print("Successfully initialized ChromaDB vector store.")
+        except Exception as e:
+            print(f"Error starting ChromaDB: {e}. Falling back to SimpleVectorStore.")
+            self.use_chroma = False
+
+    def get_context(self, domain: DecisionDomain) -> OrgContext:
+        return OrgContext(
+            knowledge_articles=self.articles.get(domain, []),
+            playbooks=self.playbooks.get(domain, []),
+            product_docs=self.product_docs.get(domain, []),
+            crm_history=[]
+        )
+
+    def semantic_search(self, query: str, domain: DecisionDomain, top_k: int = 4) -> List[Tuple[Dict[str, Any], float]]:
+        if self.use_chroma:
+            try:
+                query_embedding = self.embed_model.encode([query]).tolist()[0]
+                results = self.collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=top_k * 2,
+                    where={"domain": domain}
+                )
+                
+                output = []
+                if results and results["ids"] and len(results["ids"][0]) > 0:
+                    for i in range(len(results["ids"][0])):
+                        doc_id = results["ids"][0][i]
+                        dist = results["distances"][0][i]
+                        similarity = round(max(0.10, min(0.99, 1.0 - dist)), 2)
+                        
+                        meta = results["metadatas"][0][i]
+                        tags = meta.get("tags", "").split(",") if meta.get("tags") else []
+                        
+                        doc_data = {
+                            "id": doc_id,
+                            "type": meta.get("type"),
+                            "title": meta.get("title"),
+                            "excerpt": meta.get("excerpt"),
+                            "tags": tags
+                        }
+                        output.append((doc_data, similarity))
+                    
+                    output.sort(key=lambda x: x[1], reverse=True)
+                    return output[:top_k]
+            except Exception as e:
+                print(f"Chroma query failed: {e}. Falling back to SimpleVectorStore.")
+                
+        all_results = self.simple_store.search(query, top_k=top_k*2)
+        filtered = []
+        for doc, sim in all_results:
+            if doc["metadata"]["domain"] == domain:
+                doc_data = {
+                    "id": doc["id"],
+                    "type": doc["metadata"]["type"],
+                    "title": doc["metadata"]["title"],
+                    "excerpt": doc["metadata"]["excerpt"],
+                    "tags": doc["metadata"]["tags"]
+                }
+                filtered.append((doc_data, sim))
+        return filtered[:top_k]
+
+
+class RetrieverAgent:
+    def __init__(self, knowledge_base: KnowledgeBase, crm_simulator: SQLiteCRMSimulator) -> None:
+        self.kb = knowledge_base
+        self.crm = crm_simulator
+
+    def retrieve(self, query: str, customer_id: str, domain: DecisionDomain, min_relevance: float = 0.50) -> OrgContext:
+        search_results = self.kb.semantic_search(query, domain, top_k=6)
+        
+        articles = []
+        playbooks = []
+        product_docs = []
+        
+        for doc, score in search_results:
+            if score < min_relevance:
+                continue
+                
+            doc_with_score = doc.copy()
+            doc_with_score["relevance"] = score
+            
+            doc_type = doc.get("type")
+            if doc_type == "knowledge_article":
+                articles.append(doc_with_score)
+            elif doc_type == "playbook":
+                playbooks.append(doc_with_score)
+            elif doc_type == "product_doc":
+                product_docs.append(doc_with_score)
+                
+        crm_history = self.crm.query_by_customer_id(customer_id, domain)
+        for event in crm_history:
+            event["relevance"] = 1.0
+            
+        return OrgContext(
+            knowledge_articles=articles,
+            playbooks=playbooks,
+            product_docs=product_docs,
+            crm_history=crm_history
+        )
+
+
 class PlannerAgent:
-    def __init__(self, knowledge: MockKnowledge, memory: MemoryStore) -> None:
+    def __init__(self, knowledge: KnowledgeBase | MockKnowledge, memory: MemoryStore) -> None:
         self.knowledge = knowledge
         self.memory = memory
+        self.rules = load_business_rules()
+        
+        # SQLite CRM Simulator
+        self.crm_sim = SQLiteCRMSimulator()
+        
+        # Seed simulator from KB
+        if isinstance(knowledge, KnowledgeBase):
+            self.crm_sim.seed_data(knowledge.crm_seed)
+        elif hasattr(knowledge, "_crm_history"):
+            self.crm_sim.seed_data(knowledge._crm_history)
+            
+        # Retriever Agent
+        if not isinstance(knowledge, KnowledgeBase):
+            try:
+                self.kb = KnowledgeBase()
+            except Exception:
+                self.kb = knowledge
+        else:
+            self.kb = knowledge
+            
+        self.retriever = RetrieverAgent(self.kb, self.crm_sim)
 
     def run_workflow(self, payload: Dict[str, Any]) -> WorkflowStartResult:
         customer_input = CustomerInteraction.from_payload(payload)
@@ -570,7 +1015,19 @@ class PlannerAgent:
         )
         self.memory.put_interaction(interaction)
 
-        org_context = self.knowledge.get_context(domain)  # type: ignore[arg-type]
+        # Retrieve dynamic context with RetrieverAgent
+        query_text = raw_text
+        min_rel = self.rules.get(domain, {}).get("min_relevance_score", 0.50)
+        
+        if hasattr(self, "retriever"):
+            org_context = self.retriever.retrieve(
+                query=query_text,
+                customer_id=customer_id,
+                domain=domain,
+                min_relevance=min_rel
+            )
+        else:
+            org_context = self.knowledge.get_context(domain)
 
         # Enriched ingestion context drives heuristics below (participants, topics, open questions).
         analysis = self._analyze_business_context(interaction, org_context, domain)  # type: ignore[arg-type]
@@ -1175,6 +1632,7 @@ class PlannerAgent:
                     label=a.get("title", "KB"),
                     excerpt=a.get("excerpt", ""),
                     source=f"knowledge_article:{a.get('id', 'KB')}",
+                    relevance=a.get("relevance", 1.0)
                 )
             )
         for p in org_context.playbooks:
@@ -1183,6 +1641,7 @@ class PlannerAgent:
                     label=p.get("title", "Playbook"),
                     excerpt=p.get("excerpt", ""),
                     source=f"playbook:{p.get('id', 'PB')}",
+                    relevance=p.get("relevance", 1.0)
                 )
             )
         for d in org_context.product_docs:
@@ -1191,6 +1650,7 @@ class PlannerAgent:
                     label=d.get("title", "Doc"),
                     excerpt=d.get("excerpt", ""),
                     source=f"product_doc:{d.get('id', 'DOC')}",
+                    relevance=d.get("relevance", 1.0)
                 )
             )
         for c in org_context.crm_history:
@@ -1199,6 +1659,7 @@ class PlannerAgent:
                     label=f"CRM event {c.get('timestamp', '')}".strip(),
                     excerpt=c.get("text", ""),
                     source=f"crm_event:{c.get('id', 'CRM')}",
+                    relevance=c.get("relevance", 1.0)
                 )
             )
 
@@ -1222,6 +1683,8 @@ class PlannerAgent:
             score += 0.5
         if "crm_event" in evidence.source:
             score += 0.3
+            
+        score += (getattr(evidence, "relevance", 1.0) * 2.0)
         return score
 
     def _select_evidence_for_action(
@@ -1256,12 +1719,20 @@ class PlannerAgent:
         evidence: List[EvidenceItem],
         missing_count: int,
         memory_boost: float,
+        domain: str = "saas_sales"
     ) -> float:
         """Adjust confidence based on evidence quality, gaps, and learned preferences."""
         evidence_boost = min(0.12, len(evidence) * 0.04)
         missing_penalty = min(0.15, missing_count * 0.03)
         raw = base + evidence_boost + memory_boost - missing_penalty
-        return round(max(0.55, min(0.92, raw)), 2)
+        
+        # Load constraints from business rules config
+        rules = self.rules.get(domain, {}).get("rules", {}) if hasattr(self, "rules") else {}
+        weights = rules.get("weights", {})
+        min_val = weights.get("min_clamped_confidence", 0.55)
+        max_val = weights.get("max_clamped_confidence", 0.92)
+        
+        return round(max(min_val, min(max_val, raw)), 2)
 
     def _recommend_next_best_actions(
         self,
@@ -1277,6 +1748,10 @@ class PlannerAgent:
         evidence_pool = self._build_evidence_pool(org_context)
         missing_count = len(analysis.missing_information)
 
+        # Load rules-based confidence overrides
+        domain_rules = self.rules.get(domain, {}) if hasattr(self, "rules") else {}
+        bc = domain_rules.get("base_confidence", {})
+
         action_templates: List[Dict[str, Any]] = []
 
         if domain == "saas_sales":
@@ -1288,7 +1763,7 @@ class PlannerAgent:
                         "Convert discovery insights into a 30/60-day MAP with named stakeholders, "
                         "success metrics (e.g., report time <15 min), and decision dates."
                     ),
-                    "base_confidence": 0.82,
+                    "base_confidence": bc.get("map", 0.82),
                     "memory_key": "map",
                     "keywords": ["map", "action plan", "stakeholder", "30", "60", "metric", "outcome"],
                     "rationale": (
@@ -1304,7 +1779,7 @@ class PlannerAgent:
                         "Ask who owns the outcome internally, what success looks like for them, "
                         "and offer a champion enablement kit (pitch deck + ROI one-pager)."
                     ),
-                    "base_confidence": 0.79,
+                    "base_confidence": bc.get("champion", 0.79),
                     "memory_key": "champion",
                     "keywords": ["champion", "stakeholder", "enablement", "roi", "buyer"],
                     "rationale": (
@@ -1320,7 +1795,7 @@ class PlannerAgent:
                         "Pre-fill security questionnaire and send SOC2/ISO + SSO audit trail docs "
                         "within 5 business days to avoid procurement slip."
                     ),
-                    "base_confidence": 0.85,
+                    "base_confidence": bc.get("security", 0.85),
                     "memory_key": "security",
                     "keywords": ["security", "soc2", "sso", "audit", "procurement", "compliance"],
                     "rationale": (
@@ -1336,7 +1811,7 @@ class PlannerAgent:
                         "Offer a 2-week POV focused on reporting speed and CRM sync — "
                         "avoid feature bake-off, anchor on quantified ROI."
                     ),
-                    "base_confidence": 0.80,
+                    "base_confidence": bc.get("qualification", 0.80),
                     "memory_key": "qualification",
                     "keywords": ["competitor", "pov", "proof", "reporting", "roi", "analytics"],
                     "rationale": (
@@ -1352,7 +1827,7 @@ class PlannerAgent:
                         "Demo executive reporting module (4hr → 15min) with live CRM sync — "
                         "addresses top buying criterion in 68% of won deals."
                     ),
-                    "base_confidence": 0.77,
+                    "base_confidence": bc.get("qualification", 0.77),
                     "memory_key": "qualification",
                     "keywords": ["report", "crm", "sync", "dashboard", "integrat"],
                     "rationale": (
@@ -1369,7 +1844,7 @@ class PlannerAgent:
                         "Lock stakeholders and confirm timeline/budget constraints "
                         "so the next meeting doesn't stall."
                     ),
-                    "base_confidence": 0.74,
+                    "base_confidence": bc.get("qualification", 0.74),
                     "memory_key": "qualification",
                     "keywords": ["stakeholder", "timeline", "alignment", "meeting"],
                     "rationale": (
@@ -1386,7 +1861,7 @@ class PlannerAgent:
                         "Reconfirm value drivers, assign weekly adoption check-ins, "
                         "and escalate internally with customer consent."
                     ),
-                    "base_confidence": 0.84,
+                    "base_confidence": bc.get("recovery_plan", 0.84),
                     "memory_key": "recovery",
                     "keywords": ["recovery", "adoption", "at-risk", "churn", "check-in"],
                     "rationale": (
@@ -1401,7 +1876,7 @@ class PlannerAgent:
                     "Explain leading indicators (usage/support trends) and how they'll be "
                     "monitored during the recovery period with milestone targets."
                 ),
-                "base_confidence": 0.78,
+                "base_confidence": bc.get("health_drilldown", 0.78),
                 "memory_key": "recovery",
                 "keywords": ["health", "usage", "support", "milestone", "adoption"],
                 "rationale": (
@@ -1417,7 +1892,7 @@ class PlannerAgent:
                         "Run a 30-minute working session to map which workflows break, "
                         "for whom, and what 'good' looks like by day 30."
                     ),
-                    "base_confidence": 0.73,
+                    "base_confidence": bc.get("qualification", 0.73),
                     "memory_key": "qualification",
                     "keywords": ["workflow", "user", "support", "ticket", "broken"],
                     "rationale": (
@@ -1433,7 +1908,7 @@ class PlannerAgent:
                         "Present ROI proof points, adoption milestones, and expansion options "
                         "to the economic buyer."
                     ),
-                    "base_confidence": 0.76,
+                    "base_confidence": bc.get("ebr_scheduling", 0.76),
                     "memory_key": "recovery",
                     "keywords": ["ebr", "executive", "roi", "renew", "expand"],
                     "rationale": (
@@ -1446,7 +1921,7 @@ class PlannerAgent:
             action_templates.append({
                 "title": "Tailor next steps using the domain playbook",
                 "summary": "Map current context to known enterprise patterns and propose a safe next action.",
-                "base_confidence": 0.70,
+                "base_confidence": bc.get("qualification", 0.70),
                 "memory_key": "qualification",
                 "keywords": ["playbook", "stakeholder", "outcome"],
                 "rationale": "When context is incomplete, playbook-grounded steps reduce generic recommendations.",
@@ -1458,7 +1933,7 @@ class PlannerAgent:
             action_templates.append({
                 "title": "Draft a qualification follow-up email",
                 "summary": "Gather missing context on constraints, stakeholders, and success metrics.",
-                "base_confidence": 0.72,
+                "base_confidence": bc.get("qualification", 0.72),
                 "memory_key": "qualification",
                 "keywords": ["qualif", "discovery", "metric", "stakeholder"],
                 "rationale": "Missing information in analysis — direct follow-up improves next recommendation quality.",
@@ -1475,11 +1950,19 @@ class PlannerAgent:
                 evidence=selected_evidence,
                 missing_count=missing_count,
                 memory_boost=mem_boost,
+                domain=domain,
             )
 
-            # Enrich rationale with specific evidence IDs for explainability.
-            evidence_refs = ", ".join(e.source.split(":")[-1] for e in selected_evidence[:2])
-            rationale = f"{a['rationale']} Evidence: {evidence_refs}."
+            # Enrich rationale with specific evidence IDs and relevance scores for explainability.
+            citations = []
+            for e in selected_evidence:
+                if e.source != "none" and hasattr(e, "relevance") and e.relevance is not None:
+                    citations.append(f"{e.source.split(':')[-1]} (Relevance: {e.relevance:.2f})")
+                elif e.source != "none":
+                    citations.append(e.source.split(':')[-1])
+            
+            citation_str = " Grounded in: " + ", ".join(citations) + "." if citations else ""
+            rationale = f"{a['rationale']}{citation_str}"
 
             nbas.append(
                 NextBestAction(

@@ -1,0 +1,36 @@
+# Decisio-AI Business Rules and Thresholds Configuration
+# Used by PlannerAgent to weigh and filter recommendations dynamically.
+
+domains:
+  saas_sales:
+    min_relevance_score: 0.50
+    base_confidence:
+      map: 0.82
+      champion: 0.79
+      security: 0.85
+      qualification: 0.80
+    rules:
+      timeline_pressure_threshold_days: 30
+      sentiment_risk_flag: ["negative", "mixed"]
+      weights:
+        past_approval_bias: 0.05
+        past_rejection_penalty: -0.10
+        min_clamped_confidence: 0.40
+        max_clamped_confidence: 0.98
+
+  customer_success:
+    min_relevance_score: 0.45
+    base_confidence:
+      recovery_plan: 0.83
+      ebr_scheduling: 0.78
+      health_drilldown: 0.81
+      qualification: 0.70
+    rules:
+      health_score_alert_threshold: 65
+      usage_drop_alert_percentage: 15
+      sentiment_risk_flag: ["negative"]
+      weights:
+        past_approval_bias: 0.04
+        past_rejection_penalty: -0.08
+        min_clamped_confidence: 0.35
+        max_clamped_confidence: 0.95

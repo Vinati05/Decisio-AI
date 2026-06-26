@@ -1,0 +1,35 @@
+# Historical CRM Updates/Events to Seed Database Simulator
+
+saas_sales:
+  - customer_id: "CUST-1001"
+    id: "CRM-SAAS-1"
+    timestamp: "2026-06-10"
+    text: >
+      Discovery call: VP Ops wants faster reporting (currently 4hr manual);
+      no champion identified. Competitor X mentioned for analytics.
+  - customer_id: "CUST-1001"
+    id: "CRM-SAAS-2"
+    timestamp: "2026-06-18"
+    text: >
+      Follow-up email opened but no reply. IT lead asked about SSO and data residency
+      - security review likely required before pilot.
+  - customer_id: "CUST-1001"
+    id: "CRM-SAAS-3"
+    timestamp: "2026-06-22"
+    text: >
+      Similar account (Acme Corp) closed after MAP + champion enablement in 45 days.
+      Win driver: quantified time-to-report ROI.
+
+customer_success:
+  - customer_id: "CUST-CS-99"
+    id: "CRM-CS-1"
+    timestamp: "2026-06-12"
+    text: >
+      Support tickets up 40% last 2 weeks; product usage dipped 18%.
+      Customer success manager flagged at-risk status.
+  - customer_id: "CUST-CS-99"
+    id: "CRM-CS-2"
+    timestamp: "2026-06-20"
+    text: >
+      Recovery plan started: weekly adoption check-ins scheduled.
+      Usage stabilized after onboarding refresher for power users.
