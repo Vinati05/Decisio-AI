@@ -525,61 +525,82 @@ const html = `<!DOCTYPE html>
             </div>
             <div class="note" id="memoryBox">No saved decisions yet.</div>
           </div>
-        </div>
-
-        <div class="grid">
+        </div>        <div class="grid">
           <div class="story">
-            <div class="section">
-              <div class="section-title">
-                <h3>Customer overview</h3>
-                <div class="meta" id="customerMeta">—</div>
+            <!-- New Ingestion Center Section -->
+            <div style="display: flex; flex-direction: column; gap: 14px; width: 100%;">
+              <div class="section">
+                <div class="section-title">
+                  <h3>Ingestion Center</h3>
+                  <div class="meta">Upload text, email, or notes</div>
+                </div>
+                <div class="upload-container" style="display: flex; flex-direction: column; gap: 10px;">
+                  <div style="display: flex; gap: 10px; align-items: center; width: 100%;">
+                    <input type="file" id="fileInput" accept=".txt,.json" style="display: none;" />
+                    <button type="button" class="btn-secondary" onclick="document.getElementById('fileInput').click()" style="width: 100%; text-align: center; border-style: dashed; border-width: 1px; padding: 12px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer;">
+                      📂 Choose Transcript / Email / Notes File
+                    </button>
+                  </div>
+                  <div id="fileInfo" class="note" style="display: none; padding: 10px; background: rgba(0,0,0,0.02); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 12px; word-break: break-all;"></div>
+                  <div style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 10px;">
+                    <div>
+                      <label class="note" style="display: block; margin-bottom: 4px; font-weight: 600;">Scenario Domain</label>
+                      <select id="domainSelect" style="width:100%; padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: var(--font); font-size: 13px;">
+                        <option value="saas_sales">SaaS Sales</option>
+                        <option value="customer_success">Customer Success</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="note" style="display: block; margin-bottom: 4px; font-weight: 600;">Customer ID</label>
+                      <input type="text" id="customerIdInput" value="CUST-1001" style="width:100%; padding: 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: var(--font); font-size: 13px;" />
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div class="overview">
-                <div class="metric">
-                  <div class="label">Current health score</div>
-                  <div class="value" id="healthValue">—</div>
-                  <div class="subvalue" id="healthCopy">—</div>
+              <!-- Customer Overview Card -->
+              <div class="section">
+                <div class="section-title">
+                  <h3>Customer overview</h3>
+                  <div class="meta" id="customerMeta">—</div>
                 </div>
 
-                <div class="metric">
-                  <div class="label">Recommendation confidence</div>
-                  <div class="value" id="signalLabel">—</div>
-                  <div class="confidence-bar"><span id="signalBar"></span></div>
-                  <div class="subvalue" id="confidenceCopy">—</div>
+                <div class="overview">
+                  <div class="metric">
+                    <div class="label">Current health score</div>
+                    <div class="value" id="healthValue">—</div>
+                    <div class="subvalue" id="healthCopy">—</div>
+                  </div>
+
+                  <div class="metric">
+                    <div class="label">Recommendation confidence</div>
+                    <div class="value" id="signalLabel">—</div>
+                    <div class="confidence-bar"><span id="signalBar"></span></div>
+                    <div class="subvalue" id="confidenceCopy">—</div>
+                  </div>
                 </div>
+
+                <div class="badges" id="riskBadges"></div>
+
+                <div style="height:14px"></div>
+
+                <div class="section-title" style="margin-bottom:10px">
+                  <h3>Decision timeline</h3>
+                  <div class="meta">from interaction → recommendation</div>
+                </div>
+                <ul class="timeline" id="timeline"></ul>
               </div>
-
-              <div class="badges" id="riskBadges"></div>
-
-              <div style="height:14px"></div>
-
-              <div class="section-title" style="margin-bottom:10px">
-                <h3>Decision timeline</h3>
-                <div class="meta">from interaction → recommendation</div>
-              </div>
-              <ul class="timeline" id="timeline"></ul>
             </div>
 
+            <!-- Next Best Actions List -->
             <div class="section">
               <div class="section-title">
-                <h3>Next best action</h3>
-                <div class="meta" id="signalFocusMeta">—</div>
+                <h3>Next best actions</h3>
+                <div class="meta" id="signalFocusMeta">Explainability • Evidence • Review</div>
               </div>
 
-              <div class="stack">
-                <div>
-                  <p class="note" style="margin:0" id="recommendationEyebrow">—</p>
-                  <p class="big-title" id="recommendationTitle" style="margin-top:8px">—</p>
-                  <p class="note" style="margin-top:8px" id="recommendationBody">—</p>
-                </div>
-
-                <div class="section-title" style="margin-bottom:8px">
-                  <h3>Evidence panel</h3>
-                  <div class="meta">expand to inspect</div>
-                </div>
-
-                <div class="evidence-list" id="evidenceList"></div>
+              <div class="stack" id="actionsList" style="display: flex; flex-direction: column; gap: 14px;">
+                <!-- Dynamically populated next best action cards -->
               </div>
             </div>
           </div>
@@ -637,7 +658,6 @@ const html = `<!DOCTYPE html>
       const signalPill = document.getElementById('signalPill');
 
       const timeline = document.getElementById('timeline');
-      const evidenceList = document.getElementById('evidenceList');
 
       const signalLabel = document.getElementById('signalLabel');
       const signalBar = document.getElementById('signalBar');
@@ -649,10 +669,6 @@ const html = `<!DOCTYPE html>
       const riskBadges = document.getElementById('riskBadges');
 
       const customerMeta = document.getElementById('customerMeta');
-
-      const recommendationEyebrow = document.getElementById('recommendationEyebrow');
-      const recommendationTitle = document.getElementById('recommendationTitle');
-      const recommendationBody = document.getElementById('recommendationBody');
       const signalFocusMeta = document.getElementById('signalFocusMeta');
 
       const approvalTitle = document.getElementById('approvalTitle');
@@ -668,6 +684,34 @@ const html = `<!DOCTYPE html>
 
       let currentData = null;
       let currentActionState = 'pending'; // pending|approved|rejected|modified
+      let uploadedContent = null;
+      let uploadedFileName = "";
+
+      // File Input Change Listener
+      document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        uploadedFileName = file.name;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          uploadedContent = evt.target.result;
+
+          const fileInfo = document.getElementById('fileInfo');
+          fileInfo.style.display = 'block';
+          fileInfo.innerHTML = \`<strong>Selected:</strong> \${escapeHtml(file.name)} (\${Math.round(file.size / 1024 * 10) / 10} KB)\`;
+
+          // Auto-detect domain based on file name or content
+          const nameLower = file.name.toLowerCase();
+          const contentLower = uploadedContent.toLowerCase();
+          if (nameLower.includes('customer') || nameLower.includes('success') || nameLower.includes('cs') || contentLower.includes('customer success') || contentLower.includes('ticket') || contentLower.includes('churn')) {
+            document.getElementById('domainSelect').value = 'customer_success';
+          } else {
+            document.getElementById('domainSelect').value = 'saas_sales';
+          }
+        };
+        reader.readAsText(file);
+      });
 
       function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
@@ -678,14 +722,12 @@ const html = `<!DOCTYPE html>
       }
 
       function computeRisk(confidence01) {
-        // Confidence high => lower risk.
         const p = clamp(Math.round(confidence01 * 100), 0, 100);
         if (p >= 82) return { label: 'Low Risk', dot: 'var(--success-2)' };
         if (p >= 70) return { label: 'Medium Risk', dot: 'var(--warning-2)' };
         if (p >= 55) return { label: 'High Risk', dot: 'var(--warning-2)' };
         return { label: 'Blocked', dot: 'var(--danger-2)' };
       }
-
 
       function setBadges(confidence01) {
         const risk = computeRisk(confidence01);
@@ -708,31 +750,49 @@ const html = `<!DOCTYPE html>
         }
       }
 
-      function updateMemory() {
-        const saved = localStorage.getItem('nexora-spark');
-        memoryBox.textContent = saved ? ('Saved decision: ' + saved) : 'No saved decisions yet.';
+      async function loadMemory(customerId) {
+        try {
+          const response = await fetch(\`/memory/\${customerId}\`);
+          const data = await response.json();
+          const insights = data.learned_insights || [];
+          if (insights.length === 0 || (insights.length === 1 && insights[0].includes("No prior outcomes"))) {
+            memoryBox.innerHTML = '<span style="color: var(--muted);">No backend memory records yet. Recommendations are grounded in playbooks.</span>';
+          } else {
+            memoryBox.innerHTML = '<ul style="margin: 0; padding-left: 16px; display: grid; gap: 6px; text-align: left;">' +
+              insights.map(ins => \`<li style="font-size: 12px; color: var(--text); line-height: 1.45;">\${escapeHtml(ins)}</li>\`).join('') +
+              '</ul>';
+          }
+        } catch (e) {
+          console.error("Failed to load memory:", e);
+          memoryBox.textContent = 'Unable to fetch memory insights.';
+        }
+      }
+
+      async function updateMemory() {
+        const customerId = document.getElementById('customerIdInput') ? document.getElementById('customerIdInput').value.trim() : 'CUST-1001';
+        await loadMemory(customerId);
       }
 
       function renderTimeline(data) {
+        const opp = (data.analysis && data.analysis.opportunities && data.analysis.opportunities[0]) || 'Gathering discovery signals.';
+        const risk = (data.analysis && data.analysis.risks && data.analysis.risks[0]) || 'Checking risk framing.';
+        const missing = (data.analysis && data.analysis.missing_information && data.analysis.missing_information[0]) || 'Identifying open constraints.';
+        const formatStr = (data.explanation_bundle && data.explanation_bundle.ingestion_enrichment) 
+          ? (data.explanation_bundle.ingestion_enrichment.detected_format || 'raw') 
+          : 'raw';
+        const sentimentStr = (data.explanation_bundle && data.explanation_bundle.ingestion_enrichment) 
+          ? (data.explanation_bundle.ingestion_enrichment.sentiment || 'neutral') 
+          : 'neutral';
+
         const items = [
-          { head: 'Customer interaction', copy: 'Captured and normalized the latest context.' },
-          { head: 'Context retrieval', copy: 'Pulled enterprise knowledge and playbook signals.' },
-          { head: 'Planner analysis', copy: 'Ranked evidence-grounded next steps.' },
-          { head: 'Recommendation generated', copy: 'Proposed outputs pending human approval.' },
+          { head: 'Customer Interaction Ingested', copy: \`Detected format: \${formatStr}. Sentiment: \${sentimentStr}.\` },
+          { head: 'Opportunity Analyzed', copy: opp },
+          { head: 'Risk & Missing Info Flagged', copy: \`\${risk} (Gaps: \${missing})\` },
+          { head: 'Next Best Actions Generated', copy: \`Proposed \${data.next_best_actions ? data.next_best_actions.length : 0} evidence-linked next steps pending review.\` },
         ];
 
-        // Use backend-provided timeline if present; keep it consistent with labels.
-        const provided = Array.isArray(data.timeline) ? data.timeline : [];
-        const mapped = items.map((it, idx) => {
-          const p = provided[idx];
-          return {
-            head: it.head,
-            copy: p ? p : it.copy
-          };
-        });
-
         timeline.innerHTML = '';
-        for (const it of mapped) {
+        for (const it of items) {
           const li = document.createElement('li');
           li.className = 't-item';
           li.innerHTML = '<div class="t-line"></div><div class="t-body"><p class="t-head">' + it.head + '</p><p class="t-copy">' + it.copy + '</p></div>';
@@ -740,51 +800,12 @@ const html = `<!DOCTYPE html>
         }
       }
 
-      function renderEvidence(data) {
-        evidenceList.innerHTML = '';
-
-        // We only have legacy fields: pillars[0..2] and spark/reason.
-        const pillars = Array.isArray(data.pillars) ? data.pillars : [];
-        const p0 = pillars[0] || { title: 'Opportunity', copy: '' };
-        const p1 = pillars[1] || { title: 'Risk', copy: '' };
-        const p2 = pillars[2] || { title: 'Next', copy: '' };
-
-        const evidenceSections = [
-          {
-            title: 'Supporting evidence',
-            left: { k: 'Opportunity signal', v: p0.copy || data.headline || '—' },
-            right: { k: 'Risk framing', v: p1.copy || '' },
-          },
-          {
-            title: 'Enterprise knowledge used',
-            left: { k: 'Playbook + docs', v: data.focus || p2.copy || '—' },
-            right: { k: 'Historical pattern', v: data.spark || '' },
-          },
-          {
-            title: 'Reasoning sketch',
-            left: { k: 'What changed', v: (data.reason || '').slice(0, 160) + ((data.reason || '').length > 160 ? '…' : '') },
-            right: { k: 'Why this next step', v: (data.description || '') },
-          }
-        ];
-
-        for (const s of evidenceSections) {
-          const details = document.createElement('details');
-          details.setAttribute('open', 'false');
-          details.innerHTML = '<summary>' + s.title + ' <span class="chev" aria-hidden="true"></span></summary>' +
-            '<div class="e-body"><div class="e-grid">' +
-            '<div class="e-chip"><div class="k">' + s.left.k + '</div><div class="v">' + escapeHtml(s.left.v) + '</div></div>' +
-            '<div class="e-chip"><div class="k">' + s.right.k + '</div><div class="v">' + escapeHtml(s.right.v) + '</div></div>' +
-            '</div></div>';
-          evidenceList.appendChild(details);
-        }
-      }
-
       function escapeHtml(str) {
         return String(str)
           .replaceAll('&','&amp;')
-          .replaceAll('<','<')
-          .replaceAll('>','>')
-          .replaceAll('"','"')
+          .replaceAll('<','&lt;')
+          .replaceAll('>','&gt;')
+          .replaceAll('"','&quot;')
           .replaceAll("'",'&#039;');
       }
 
@@ -839,31 +860,184 @@ const html = `<!DOCTYPE html>
         renderExec(currentData);
       }
 
+      async function submitStepFeedback(customerId, domain, actionTitle, status, idx, buttonEl) {
+        const statusTextEl = document.getElementById(\`fb-status-\${idx}\`);
+        if (statusTextEl) {
+          statusTextEl.textContent = 'Saving...';
+        }
+        
+        try {
+          const response = await fetch('/workflow/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customer_id: customerId,
+              domain: domain,
+              action_title: actionTitle,
+              feedback_status: status
+            })
+          });
+          
+          const resData = await response.json();
+          if (resData.status === 'success') {
+            if (statusTextEl) {
+              statusTextEl.textContent = 'Feedback saved!';
+              statusTextEl.style.color = 'var(--accent-3)';
+              statusTextEl.style.fontWeight = 'bold';
+            }
+            
+            // Highlight current button, reset other button in the same card
+            const card = buttonEl.closest('.action-card');
+            if (card) {
+              const approveBtn = card.querySelector('.approve-step-btn');
+              const rejectBtn = card.querySelector('.reject-step-btn');
+              
+              if (status === 'approved') {
+                approveBtn.style.background = 'var(--success-2)';
+                approveBtn.style.borderColor = 'var(--success)';
+                rejectBtn.style.background = 'rgba(255,255,255,0.72)';
+                rejectBtn.style.borderColor = 'var(--border)';
+              } else {
+                rejectBtn.style.background = 'var(--danger)';
+                rejectBtn.style.borderColor = 'var(--danger-2)';
+                approveBtn.style.background = 'rgba(255,255,255,0.72)';
+                approveBtn.style.borderColor = 'var(--border)';
+              }
+            }
+            
+            // Reload memory insights to reflect immediately
+            await loadMemory(customerId);
+          } else {
+            if (statusTextEl) statusTextEl.textContent = 'Error saving feedback';
+          }
+        } catch (err) {
+          console.error(err);
+          if (statusTextEl) statusTextEl.textContent = 'Connection error';
+        }
+      }
+
       function renderRecommendation(data) {
         currentData = data;
 
-        const conf = typeof data.confidence === 'number' ? data.confidence : 0.72;
-        setSignal(Math.round(conf * 100));
-        confidenceCopy.textContent = data.focus
-          ? ('Built around: ' + data.focus)
-          : 'Higher confidence indicates stronger grounding in the enterprise knowledge patterns.';
+        const overallConf = (data.explanation_bundle && data.explanation_bundle.confidence) 
+          ? (data.explanation_bundle.confidence.overall || 0.72) 
+          : 0.72;
 
-        setBadges(conf);
+        setSignal(Math.round(overallConf * 100));
 
-        // Health score (mocked but feels coherent)
-        const health = Math.round(clamp((conf * 0.9 + 0.05) * 100, 0, 100));
-        healthValue.textContent = health + '/100';
-        healthCopy.textContent = health >= 80 ? 'Account indicators look stable.' : health >= 65 ? 'Early friction signals detected.' : 'A recovery plan is recommended.';
+        // Find the evidence sources used across all actions to show in the copy
+        const sources = [];
+        if (Array.isArray(data.next_best_actions)) {
+          data.next_best_actions.forEach(a => {
+            if (Array.isArray(a.evidence)) {
+              a.evidence.forEach(e => {
+                if (e.source && e.source !== 'none') {
+                  sources.push(e.source.split(':').pop());
+                }
+              });
+            }
+          });
+        }
+        const uniqueSources = [...new Set(sources)];
+        confidenceCopy.textContent = uniqueSources.length > 0
+          ? ('Grounded in: ' + uniqueSources.join(', '))
+          : 'Higher confidence indicates stronger grounding in enterprise knowledge.';
 
-        customerMeta.textContent = data.customer_id ? data.customer_id : 'Customer: CUST-1001 • Domain: ' + (data.signal_label || '—');
+        setBadges(overallConf);
 
-        recommendationEyebrow.textContent = data.signal_label ? data.signal_label : 'Evidence-backed recommendation';
-        recommendationTitle.textContent = data.recommendation || '—';
-        recommendationBody.textContent = data.reason || '—';
-        signalFocusMeta.textContent = (data.accent ? data.accent : 'Explainability • Evidence • Review');
+        // Success metrics (domain KPIs)
+        const domain = data.domain || 'saas_sales';
+        const metrics = data.success_metrics || {};
+
+        if (domain === 'saas_sales' && metrics.win_probability) {
+          document.querySelector('.metric:nth-child(1) .label').textContent = 'Win probability';
+          healthValue.textContent = metrics.win_probability.current_estimate;
+          healthCopy.textContent = metrics.win_probability.estimated_impact;
+        } else if (domain === 'customer_success' && metrics.health_score) {
+          document.querySelector('.metric:nth-child(1) .label').textContent = 'Current health score';
+          healthValue.textContent = metrics.health_score.current_estimate;
+          healthCopy.textContent = metrics.health_score.estimated_impact;
+        } else {
+          document.querySelector('.metric:nth-child(1) .label').textContent = 'Current health score';
+          healthValue.textContent = '—';
+          healthCopy.textContent = '—';
+        }
+
+        customerMeta.textContent = \`Customer: \${data.customer_id || 'CUST-1001'} • Domain: \${data.domain || 'saas_sales'}\`;
+        signalFocusMeta.textContent = 'Explainability • Evidence • Review';
 
         renderTimeline(data);
-        renderEvidence(data);
+
+        // Dynamically render next best actions cards list
+        const actionsList = document.getElementById('actionsList');
+        actionsList.innerHTML = '';
+
+        if (Array.isArray(data.next_best_actions) && data.next_best_actions.length > 0) {
+          data.next_best_actions.forEach((action, idx) => {
+            const card = document.createElement('div');
+            card.className = 'action-card';
+            card.style = 'border: 1px solid var(--border); padding: 14px; border-radius: var(--radius-md); background: var(--surface); transition: box-shadow 0.15s ease, border-color 0.15s ease; position: relative;';
+            
+            const confPercent = Math.round(action.confidence * 100);
+            
+            // Generate evidence items HTML
+            const evidenceHTML = action.evidence.map(e => \`
+              <div class="e-chip" style="padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-2);">
+                <div class="k" style="font-size: 11px; font-weight: 700; color: var(--muted);">\${escapeHtml(e.label)}</div>
+                <div class="v" style="font-size: 12px; margin-top: 4px; line-height: 1.4;">\${escapeHtml(e.excerpt)}</div>
+                <div class="note" style="font-size: 10px; margin-top: 6px; color: var(--muted-2);">Source: \${escapeHtml(e.source)}</div>
+              </div>
+            \`).join('');
+            
+            card.innerHTML = \`
+              <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
+                <div>
+                  <span class="note" style="text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; color: var(--muted); font-weight: 700;">Step \${idx + 1}</span>
+                  <h4 style="margin: 4px 0 6px; font-size: 15px; font-weight: 800; color: var(--text);">\${escapeHtml(action.title)}</h4>
+                </div>
+                <div>
+                  <span class="badge" style="background: var(--accent-2); color: var(--text); border-color: rgba(142,191,159,0.3); font-weight: 700; white-space: nowrap;">
+                    \${confPercent}% Confidence
+                  </span>
+                </div>
+              </div>
+              <p class="note" style="margin: 8px 0 10px; font-size: 13px; line-height: 1.5; color: var(--text);">\${escapeHtml(action.summary)}</p>
+              
+              <div class="note" style="margin: 8px 0; font-style: italic; border-left: 3px solid var(--accent); padding: 8px 10px; background: rgba(0,0,0,0.02); border-radius: 0 6px 6px 0; font-size: 12px; line-height: 1.4;">
+                <strong>Scaffolding Rationale:</strong> \${escapeHtml(action.rationale)}
+              </div>
+
+              <details style="margin-top: 10px; border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: rgba(255,255,255,0.5);">
+                <summary style="font-size: 12px; font-weight: 700; color: var(--muted); padding: 6px 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                  <span>Grounded Enterprise Evidence</span>
+                  <span class="chev" style="margin-left: auto;"></span>
+                </summary>
+                <div class="e-body" style="padding: 8px; display: grid; grid-template-columns: 1fr; gap: 8px; background: var(--bg);">
+                  \${evidenceHTML}
+                </div>
+              </details>
+
+              <div style="display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; align-items: center; border-top: 1px solid var(--border-2); padding-top: 10px;">
+                <span class="note" style="font-size: 11px; color: var(--muted); margin-right: auto;" id="fb-status-\${idx}">Rate this step:</span>
+                <button class="btn-secondary approve-step-btn" data-title="\${escapeHtml(action.title)}" data-idx="\${idx}" style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; border-radius: 8px;">
+                  👍 Approve
+                </button>
+                <button class="btn-secondary reject-step-btn btn-danger" data-title="\${escapeHtml(action.title)}" data-idx="\${idx}" style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; border-radius: 8px;">
+                  👎 Reject
+                </button>
+              </div>
+            \`;
+            actionsList.appendChild(card);
+          });
+
+          // Bind feedback buttons click listeners
+          const customerId = document.getElementById('customerIdInput').value.trim() || 'CUST-1001';
+          const domain = document.getElementById('domainSelect').value;
+
+          cardContainerListeners(customerId, domain);
+        } else {
+          actionsList.innerHTML = '<p class="note">No actions proposed for the current context.</p>';
+        }
 
         currentActionState = 'pending';
         reviewerNotes.value = '';
@@ -872,14 +1046,37 @@ const html = `<!DOCTYPE html>
         signalPill.textContent = 'Recommendation ready';
       }
 
+      function cardContainerListeners(customerId, domain) {
+        document.querySelectorAll('.approve-step-btn').forEach(btn => {
+          btn.addEventListener('click', async function() {
+            const actionTitle = this.getAttribute('data-title');
+            const idx = this.getAttribute('data-idx');
+            await submitStepFeedback(customerId, domain, actionTitle, 'approved', idx, this);
+          });
+        });
+
+        document.querySelectorAll('.reject-step-btn').forEach(btn => {
+          btn.addEventListener('click', async function() {
+            const actionTitle = this.getAttribute('data-title');
+            const idx = this.getAttribute('data-idx');
+            await submitStepFeedback(customerId, domain, actionTitle, 'rejected', idx, this);
+          });
+        });
+      }
+
       function setLoading() {
         signalPill.textContent = 'Curating context…';
-        recommendationTitle.textContent = 'Curating context…';
-        recommendationBody.textContent = 'Gathering a sharper recommendation for the room.';
-        recommendationEyebrow.textContent = 'Working';
-        signalFocusMeta.textContent = 'Preparing evidence summary';
+        signalFocusMeta.textContent = 'Preparing evidence summaries';
         timeline.innerHTML = '';
-        evidenceList.innerHTML = '';
+        const actionsList = document.getElementById('actionsList');
+        if (actionsList) {
+          actionsList.innerHTML = \`
+            <div style="text-align: center; padding: 30px; color: var(--muted);">
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">Curating Next Best Actions...</div>
+              <div class="note">Retrieving playbook patterns and analyzing business context.</div>
+            </div>
+          \`;
+        }
         setSignal(72);
         healthValue.textContent = '—';
         healthCopy.textContent = '—';
@@ -895,17 +1092,46 @@ const html = `<!DOCTYPE html>
       async function loadRecommendation() {
         setLoading();
         try {
-          const response = await fetch('/planner/run');
+          const customerId = document.getElementById('customerIdInput').value.trim() || 'CUST-1001';
+          const domain = document.getElementById('domainSelect').value;
+
+          let payload = {
+            customer_id: customerId,
+            domain: domain
+          };
+
+          if (uploadedContent) {
+            if (uploadedFileName.endsWith('.json')) {
+              try {
+                const parsed = JSON.parse(uploadedContent);
+                payload = { ...payload, ...parsed };
+              } catch (err) {
+                payload.interaction_text = uploadedContent;
+              }
+            } else {
+              payload.interaction_text = uploadedContent;
+            }
+          } else {
+            payload.interaction_text = "VP Ops wants faster reporting (4hr manual). No champion yet. Competitor X mentioned. IT asked about SSO.";
+          }
+
+          const response = await fetch('/workflow/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
           const data = await response.json();
           renderRecommendation(data);
+          await loadMemory(customerId);
         } catch (e) {
+          console.error(e);
           signalPill.textContent = 'Connection issue';
-          recommendationEyebrow.textContent = 'Offline';
-          recommendationTitle.textContent = 'Backend not reachable';
-          recommendationBody.textContent = 'Start the backend container and try again.';
           setSignal(48);
           timeline.innerHTML = '';
-          evidenceList.innerHTML = '';
+          const actionsList = document.getElementById('actionsList');
+          if (actionsList) {
+            actionsList.innerHTML = '<div style="padding: 20px; color: var(--muted); text-align: center;">Backend not reachable. Start the backend container and try again.</div>';
+          }
           execList.innerHTML = '';
           currentActionState = 'pending';
           setApprovalUI();
@@ -918,7 +1144,7 @@ const html = `<!DOCTYPE html>
 
       saveBtn.addEventListener('click', function () {
         if (!currentData) return;
-        localStorage.setItem('nexora-spark', currentData.recommendation);
+        localStorage.setItem('nexora-spark', (currentData.next_best_actions && currentData.next_best_actions[0]) ? currentData.next_best_actions[0].title : 'Action');
         updateMemory();
       });
 
@@ -948,9 +1174,16 @@ const html = `<!DOCTYPE html>
       setSignal(92);
       // initial empty state
       signalPill.textContent = 'Ready';
-      recommendationEyebrow.textContent = 'Evidence-backed recommendation';
-      recommendationTitle.textContent = 'Generate to see the next best action';
-      recommendationBody.textContent = 'We’ll propose a recommendation and show the reasoning scaffolding with expandable evidence.';
+      
+      const actionsList = document.getElementById('actionsList');
+      if (actionsList) {
+        actionsList.innerHTML = \`
+          <div style="padding: 20px; color: var(--muted); text-align: center;">
+            <div style="font-weight: 700; margin-bottom: 6px;">Generate to see the next best actions</div>
+            <div class="note">Choose a file, specify scenario options, and run generation.</div>
+          </div>
+        \`;
+      }
 
       customerMeta.textContent = 'Customer: CUST-1001 • Domain: saas_sales';
       confidenceCopy.textContent = 'Higher confidence indicates stronger grounding in enterprise knowledge.';
@@ -977,6 +1210,90 @@ function sendJson(res, statusCode, payload) {
 const server = http.createServer((req, res) => {
   if (req.url === '/planner/run') {
     const target = backendUrl + '/planner/run';
+    http.get(target, (backendRes) => {
+      let data = '';
+      backendRes.on('data', (chunk) => (data += chunk));
+      backendRes.on('end', () => {
+        try {
+          sendJson(res, backendRes.statusCode || 200, JSON.parse(data));
+        } catch {
+          sendJson(res, 502, { error: 'Backend error' });
+        }
+      });
+    }).on('error', () => sendJson(res, 502, { error: 'Unable to reach backend' }));
+    return;
+  }
+
+  if (req.url === '/workflow/start' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      const target = backendUrl + '/workflow/start';
+      const parsedUrl = new URL(target);
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port,
+        path: parsedUrl.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body)
+        }
+      };
+      const backendReq = http.request(options, (backendRes) => {
+        let responseData = '';
+        backendRes.on('data', (chunk) => (responseData += chunk));
+        backendRes.on('end', () => {
+          try {
+            sendJson(res, backendRes.statusCode || 200, JSON.parse(responseData));
+          } catch {
+            sendJson(res, 502, { error: 'Backend error' });
+          }
+        });
+      });
+      backendReq.on('error', () => sendJson(res, 502, { error: 'Unable to reach backend' }));
+      backendReq.write(body);
+      backendReq.end();
+    });
+    return;
+  }
+
+  if (req.url === '/workflow/feedback' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      const target = backendUrl + '/workflow/feedback';
+      const parsedUrl = new URL(target);
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port,
+        path: parsedUrl.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body)
+        }
+      };
+      const backendReq = http.request(options, (backendRes) => {
+        let responseData = '';
+        backendRes.on('data', (chunk) => (responseData += chunk));
+        backendRes.on('end', () => {
+          try {
+            sendJson(res, backendRes.statusCode || 200, JSON.parse(responseData));
+          } catch {
+            sendJson(res, 502, { error: 'Backend error' });
+          }
+        });
+      });
+      backendReq.on('error', () => sendJson(res, 502, { error: 'Unable to reach backend' }));
+      backendReq.write(body);
+      backendReq.end();
+    });
+    return;
+  }
+
+  if (req.url.startsWith('/memory/') && req.method === 'GET') {
+    const target = backendUrl + req.url;
     http.get(target, (backendRes) => {
       let data = '';
       backendRes.on('data', (chunk) => (data += chunk));

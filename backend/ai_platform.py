@@ -200,12 +200,19 @@ class MemoryStore:
             if cid == customer_id:
                 lessons.extend(items)
 
-        approved = [l for l in lessons if l.get("review_status") == "approved"]
-        rejected = [l for l in lessons if l.get("review_status") == "rejected"]
+        # Separate overall run reviews and individual step feedbacks
+        run_reviews = [l for l in lessons if l.get("source") != "individual_step_feedback"]
+        step_feedbacks = [l for l in lessons if l.get("source") == "individual_step_feedback"]
+
+        approved_runs = [l for l in run_reviews if l.get("review_status") == "approved"]
+        rejected_runs = [l for l in run_reviews if l.get("review_status") == "rejected"]
+
+        approved_steps = [l for l in step_feedbacks if l.get("feedback_status") == "approved"]
+        rejected_steps = [l for l in step_feedbacks if l.get("feedback_status") == "rejected"]
 
         # Aggregate KPI deltas from approved outcomes to show continuous improvement.
         kpi_history: Dict[str, List[str]] = {}
-        for lesson in approved:
+        for lesson in approved_runs:
             improvements = lesson.get("kpi_improvements") or {}
             if improvements:
                 for metric, impact in improvements.items():
@@ -218,28 +225,41 @@ class MemoryStore:
                         kpi_history.setdefault(metric, []).append(value)
 
         learned_insights: List[str] = []
-        if approved:
-            top_actions = [l.get("top_action_title") for l in approved if l.get("top_action_title")]
+        
+        # Run-level feedback insights
+        if approved_runs:
+            top_actions = [l.get("top_action_title") for l in approved_runs if l.get("top_action_title")]
             if top_actions:
                 learned_insights.append(
-                    f"Past approvals favor: {top_actions[-1]} "
-                    f"({len(approved)} approved run(s) on record)."
+                    f"Prior runs favor: {top_actions[-1]} "
+                    f"({len(approved_runs)} approved run(s))."
                 )
             if kpi_history:
                 sample = next(iter(kpi_history.items()))
                 learned_insights.append(
-                    f"Observed KPI movement on '{sample[0]}': {sample[1][-1]} (latest approved run)."
+                    f"KPI movement: {sample[1][-1]} on '{sample[0]}'."
                 )
-        if rejected:
-            notes = [l.get("reviewer_notes") for l in rejected if l.get("reviewer_notes")]
+        if rejected_runs:
+            notes = [l.get("reviewer_notes") for l in rejected_runs if l.get("reviewer_notes")]
             if notes:
                 learned_insights.append(
-                    f"Rejected runs often cite: \"{notes[-1][:80]}\" — future plans should address this."
+                    f"Blocked runs citation: \"{notes[-1][:80]}\""
                 )
             else:
                 learned_insights.append(
-                    f"{len(rejected)} rejected run(s) suggest recommendations need tighter qualification."
+                    f"{len(rejected_runs)} blocked run(s) recorded."
                 )
+
+        # Step-level feedback insights
+        if approved_steps:
+            learned_insights.append(
+                f"Approved actions in training: {', '.join(sorted(list(set(l['action_title'] for l in approved_steps))))}."
+            )
+        if rejected_steps:
+            learned_insights.append(
+                f"Avoid/penalize steps: {', '.join(sorted(list(set(l['action_title'] for l in rejected_steps))))}."
+            )
+
         if not lessons:
             learned_insights.append("No prior outcomes yet — recommendations use playbook defaults.")
 
@@ -248,13 +268,32 @@ class MemoryStore:
             "saved_lessons_learned": lessons,
             "learned_insights": learned_insights,
             "outcome_summary": {
-                "total_runs": len(lessons),
-                "approved": len(approved),
-                "rejected": len(rejected),
-                "approval_rate": round(len(approved) / len(lessons), 2) if lessons else None,
+                "total_runs": len(run_reviews),
+                "approved_runs": len(approved_runs),
+                "rejected_runs": len(rejected_runs),
+                "total_step_feedbacks": len(step_feedbacks),
+                "approved_steps": len(approved_steps),
+                "rejected_steps": len(rejected_steps),
+                "approval_rate": round(len(approved_runs) / len(run_reviews), 2) if run_reviews else None,
             },
             "kpi_history": kpi_history,
         }
+
+    def learn_action_feedback(
+        self,
+        customer_id: str,
+        domain: DecisionDomain,
+        action_title: str,
+        feedback_status: str
+    ) -> None:
+        key = (customer_id, domain)
+        self._lessons.setdefault(key, [])
+        self._lessons[key].append({
+            "action_title": action_title,
+            "feedback_status": feedback_status,
+            "learned_at": datetime.utcnow().isoformat() + "Z",
+            "source": "individual_step_feedback"
+        })
 
     def learn_from_outcome(
         self,
@@ -886,10 +925,20 @@ class PlannerAgent:
             "qualification": 0.0,
         }
         for lesson in lessons:
-            status = lesson.get("review_status", "")
-            notes = (lesson.get("reviewer_notes") or "").lower()
-            title = (lesson.get("top_action_title") or "").lower()
-            delta = 0.06 if status == "approved" else -0.05 if status == "rejected" else 0.0
+            if lesson.get("source") == "individual_step_feedback":
+                status = lesson.get("feedback_status", "")
+                title = (lesson.get("action_title") or "").lower()
+                notes = ""
+                # Individual step feedback carries stronger reinforcement weight
+                delta = 0.10 if status == "approved" else -0.10 if status == "rejected" else 0.0
+            else:
+                status = lesson.get("review_status", "")
+                notes = (lesson.get("reviewer_notes") or "").lower()
+                title = (lesson.get("top_action_title") or "").lower()
+                delta = 0.06 if status == "approved" else -0.05 if status == "rejected" else 0.0
+
+            if not title:
+                continue
 
             if "map" in title or "action plan" in title:
                 bias["map"] += delta
@@ -899,7 +948,7 @@ class PlannerAgent:
                 bias["security"] += delta
             if "recovery" in title or "at-risk" in title:
                 bias["recovery"] += delta
-            if "qualif" in title or "follow-up" in title:
+            if "qualif" in title or "follow-up" in title or "alignment" in title or "demo" in title:
                 bias["qualification"] += delta
 
         return bias

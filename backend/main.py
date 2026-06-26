@@ -131,6 +131,45 @@ def workflow_review(payload: Dict[str, Any]) -> JSONResponse:
     )
 
 
+@app.post("/workflow/feedback")
+def workflow_feedback(payload: Dict[str, Any]) -> JSONResponse:
+    """Capture feedback on a specific action step and write it to memory."""
+    required = ["customer_id", "domain", "action_title", "feedback_status"]
+    missing_fields = [f for f in required if f not in payload]
+    if missing_fields:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing required fields", "missing": missing_fields},
+        )
+
+    customer_id = str(payload["customer_id"])
+    domain = str(payload["domain"])
+    action_title = str(payload["action_title"])
+    feedback_status = str(payload["feedback_status"]).lower()
+
+    if feedback_status not in ("approved", "rejected"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid status", "allowed": ["approved", "rejected"]},
+        )
+
+    memory_store.learn_action_feedback(
+        customer_id=customer_id,
+        domain=domain,
+        action_title=action_title,
+        feedback_status=feedback_status
+    )
+
+    return JSONResponse(
+        content={
+            "status": "success",
+            "action_title": action_title,
+            "feedback_status": feedback_status,
+            "recorded_at": datetime.utcnow().isoformat() + "Z",
+        }
+    )
+
+
 @app.get("/memory/{customer_id}")
 def get_memory(customer_id: str) -> JSONResponse:
     return JSONResponse(content=memory_store.get_memory(customer_id))
