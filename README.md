@@ -1,4 +1,3 @@
-# Nexora Studio
 
 A polished, judge-friendly demo experience with a premium visual identity and a storytelling-driven interaction layer.
 
