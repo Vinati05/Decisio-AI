@@ -39,54 +39,75 @@
 
 
 
-## Layer 3: Advanced Agent Orchestration & Extensibility (Core Agentic Strength)
+## Layer 3: Advanced Agent Orchestration & Extensibility
 
-**Goal**: Demonstrate true reusable, planner-driven multi-agent system.
+**Goal**: Demonstrate a true reusable, planner-driven multi-agent system as required by the hackathon (Planner Agent dynamically orchestrating specialized agents).
 
-- [ ] Refactor Planner to use a lightweight orchestration framework (LangGraph recommended, or simple step-based).
-- [ ] Create specialized agents:
-  - AnalyzerAgent
-  - RecommenderAgent
-  - ExplainerAgent
-  - (optional) ExecutorAgent stub
-- [ ] Define reusable Tool architecture (`search_knowledge`, `query_crm`, `generate_draft`, etc.).
-- [ ] Make Planner dynamically select agents/tools based on domain and interaction type.
-- [ ] Add agent trace/logging visible in UI or response (for demo).
-- [ ] Implement extensibility demo: easy way to add new domain/agent (docs + example).
-- [ ] Update architecture documentation.
+- [ ] Refactor `PlannerAgent` to use a lightweight orchestration framework (LangGraph recommended for stateful workflows and human-in-the-loop, or simple step-based if time-constrained).
+- [ ] Create specialized agents (each with clear responsibilities):
+  - `AnalyzerAgent` (business context, opportunities/risks/missing info)
+  - `RecommenderAgent` (generates explainable Next Best Actions with evidence)
+  - `ExplainerAgent` (natural language summary, confidence, rationale)
+  - `MemoryAgent` (handles learning and retrieval from shared memory)
+- [ ] Define a clean **reusable Tool architecture**:
+  - `search_knowledge`, `query_crm`, `generate_draft_email`, `get_memory_insights`, etc.
+- [ ] Make the Planner dynamically decide which agents/tools to call based on:
+  - Domain
+  - Interaction type
+  - Retrieved context
+  - Confidence thresholds from business rules
+- [ ] Add visible **agent trace / orchestration log** (in response or UI) showing the flow (for demo and explainability).
+- [ ] Implement extensibility demo:
+  - Easy way to add a new domain or agent (config + registration pattern).
+  - Documentation example of adding a new "Staffing" domain agent.
+- [ ] Update architecture documentation (README + diagram) showing Planner → Specialized Agents → Tools → Shared Memory pattern.
 
 
 
 ## Layer 4: UX & Human-in-the-Loop Polish
 
-**Goal**: Make the 5-minute demo compelling and judge-friendly.
+**Goal**: Create an intuitive, judge-friendly interface that clearly demonstrates human-in-the-loop review, explainability, and memory — as required in the workflow.
 
 - [ ] Frontend improvements:
-  - Better input form supporting different source types (email/transcript selector).
-  - Rich evidence display (collapsible cards with sources).
-  - Smooth approval/rejection flow with reviewer notes.
-  - History / Memory view showing learning over time.
+  - Rich input form supporting multiple source types (email, transcript with speaker labels, meeting notes).
+  - Clear display of **ingestion enrichment** (participants, topics, sentiment, open questions).
+  - **Evidence cards** with source, excerpt, and relevance score (collapsible).
+  - Smooth approval/rejection flow with reviewer notes and immediate feedback.
+  - Memory / History view showing learned insights and KPI improvements over time.
   - Domain selector + sample scenario loader.
-- [ ] Add visual confidence indicators and narrative summaries.
-- [ ] Implement basic streaming of planner steps (if time allows).
-- [ ] Add "Explain Further" or "Ask Clarifying Questions" feature.
-- [ ] Polish UI styling for cinematic/premium feel.
-- [ ] Record 5-min demo video script outline.
+- [ ] Visual enhancements:
+  - Confidence gauges or progress bars.
+  - Narrative "spark" summaries.
+  - Agent trace visualization (optional but impressive).
+- [ ] Add "Ask Clarifying Questions" feature (using LLM or predefined) before final recommendation.
+- [ ] Polish UI to feel premium, cinematic, and human-first (as per current README tone).
+- [ ] Prepare 5-minute demo script focusing on:
+  - Dynamic ingestion → Retrieval → Analysis → Recommendation → Human Review → Memory Learning loop.
 
 
 
-## Layer 5: Production-Ready + Innovation (Stand Out)
 
-**Goal**: High reusability, measurability, and innovation.
+## Layer 5: Production-Ready + Innovation (Differentiation)
 
-- [ ] Replace in-memory store with SQLite/PostgreSQL persistence.
-- [ ] Integrate real LLM (Grok/OpenAI/Anthropic) with fallback to rule-based logic.
-- [ ] Add Evaluation Framework (`/evaluate` endpoint) with simulated runs + KPI metrics.
-- [ ] Configurable workflows (business rules engine).
-- [ ] Add exportable reports or action execution stubs (e.g., draft email generation).
-- [ ] Docker + deployment instructions (Railway/Render/Hugging Face).
-- [ ] 5-minute Architecture Walkthrough script/slides.
-- [ ] Final README polish + GitHub project setup (badges, architecture diagram).
+**Goal**: Show reusability, extensibility, measurable outcomes, and thoughtful engineering — key to the 70% Platform score.
+
+- [ ] Persistence: Replace in-memory `MemoryStore` with SQLite (or PostgreSQL) for customer interactions, runs, reviews, and lessons.
+- [ ] Full LLM Integration: Use Ollama (or Grok/OpenAI) across analysis + recommendations with configurable fallback.
+- [ ] Evaluation Framework:
+  - Add `/evaluate` endpoint that runs multiple simulated scenarios and computes metrics (acceptance rate, KPI improvement, win probability lift, etc.).
+  - Document evaluation methodology clearly in README.
+- [ ] Configurable Workflows: Expand `business_rules.yaml` + make Planner respect complex rules.
+- [ ] Action Execution Stubs: Show how approved recommendations could trigger real actions (draft email, CRM update, calendar invite).
+- [ ] Extensibility Showcase:
+  - Easy registration of new agents/domains.
+  - Example of adding a new domain (e.g., Staffing).
+- [ ] Deployment & Documentation:
+  - Clear setup instructions (local + one-click deploy options).
+  - Architecture diagram (Planner + Agents + Tools + Memory + Retrieval).
+  - 5-minute Architecture Walkthrough script/slides.
+- [ ] Final Polish:
+  - Excellent README with screenshots, video links, and business outcomes.
+  - Add badges, project description, and evaluation methodology.
 
 
 
