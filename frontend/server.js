@@ -608,6 +608,14 @@ const html = `<!DOCTYPE html>
           <div class="story" style="grid-template-columns: 1fr 1fr;">
             <div class="section">
               <div class="section-title">
+                <h3>Agent orchestration trace</h3>
+                <div class="meta" id="orchestrationRoute">Layer 3 workflow</div>
+              </div>
+              <ul class="timeline" id="agentTrace"></ul>
+            </div>
+
+            <div class="section">
+              <div class="section-title">
                 <h3>Human approval</h3>
                 <div class="meta">review before execution</div>
               </div>
@@ -681,6 +689,8 @@ const html = `<!DOCTYPE html>
       const rejectBtn = document.getElementById('rejectBtn');
 
       const execList = document.getElementById('execList');
+      const agentTrace = document.getElementById('agentTrace');
+      const orchestrationRoute = document.getElementById('orchestrationRoute');
 
       let currentData = null;
       let currentActionState = 'pending'; // pending|approved|rejected|modified
@@ -771,6 +781,37 @@ const html = `<!DOCTYPE html>
       async function updateMemory() {
         const customerId = document.getElementById('customerIdInput') ? document.getElementById('customerIdInput').value.trim() : 'CUST-1001';
         await loadMemory(customerId);
+      }
+
+      function renderAgentTrace(data) {
+        if (!agentTrace) return;
+        agentTrace.innerHTML = '';
+        const trace = (data.explanation_bundle && data.explanation_bundle.agent_trace) || [];
+        const orch = (data.explanation_bundle && data.explanation_bundle.orchestration) || {};
+
+        if (orchestrationRoute) {
+          orchestrationRoute.textContent = orch.route
+            ? ('Route: ' + orch.route + ' — ' + (orch.routing_reason || ''))
+            : 'Standard workflow';
+        }
+
+        if (trace.length === 0) {
+          agentTrace.innerHTML = '<li class="t-item"><div class="t-line"></div><div class="t-body"><p class="t-head">No trace yet</p><p class="t-copy">Run a workflow to see agent orchestration.</p></div></li>';
+          return;
+        }
+
+        trace.forEach(function(entry) {
+          const li = document.createElement('li');
+          li.className = 't-item';
+          const conf = entry.confidence != null ? Math.round(entry.confidence * 100) + '% conf' : '';
+          const tools = (entry.tool_usage || []).map(function(t) { return t.tool_name; }).join(', ');
+          li.innerHTML = '<div class="t-line"></div><div class="t-body"><p class="t-head">' +
+            escapeHtml(entry.agent_name) + ' #' + entry.execution_order + ' (' + entry.duration_ms + 'ms)</p>' +
+            '<p class="t-copy">' + escapeHtml(entry.decision) + ': ' + escapeHtml(entry.reason) +
+            (conf ? ' • ' + conf : '') +
+            (tools ? ' • Tools: ' + escapeHtml(tools) : '') + '</p></div>';
+          agentTrace.appendChild(li);
+        });
       }
 
       function renderTimeline(data) {
@@ -967,6 +1008,7 @@ const html = `<!DOCTYPE html>
         signalFocusMeta.textContent = 'Explainability • Evidence • Review';
 
         renderTimeline(data);
+        renderAgentTrace(data);
 
         // Dynamically render next best actions cards list
         const actionsList = document.getElementById('actionsList');
@@ -1082,6 +1124,8 @@ const html = `<!DOCTYPE html>
         healthCopy.textContent = '—';
         riskBadges.innerHTML = '';
         execList.innerHTML = '';
+        if (agentTrace) agentTrace.innerHTML = '';
+        if (orchestrationRoute) orchestrationRoute.textContent = 'Curating agents…';
 
         approvalResult.textContent = '';
         currentActionState = 'pending';

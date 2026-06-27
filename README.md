@@ -273,3 +273,180 @@ Useful backend logs:
 ```
 
 If you see `[Ollama] Connection failed`, confirm Ollama is running on the host and that Docker Compose includes `OLLAMA_HOST=http://host.docker.internal:11434`. If `model_available` is false, run `ollama pull llama3.2` or set `OLLAMA_MODEL` to a model shown by `ollama list`.
+
+---
+
+## Layer 3 Completed: Advanced Agent Orchestration & Extensibility
+
+Layer 3 transforms `PlannerAgent` into a reusable orchestration engine. The Planner **never performs business reasoning directly** — it decides *what* runs, *in which order*, and *why*, based on confidence, interaction type, and domain.
+
+### Architecture
+
+```mermaid
+flowchart TB
+    subgraph Entry["API Layer (unchanged)"]
+        WS["POST /workflow/start"]
+        WR["POST /workflow/review"]
+        MEM["GET /memory/{id}"]
+    end
+
+    PA["PlannerAgent<br/>(routing only)"]
+    WO["WorkflowOrchestrator<br/>(state machine)"]
+
+    subgraph Agents["Specialized Agents"]
+        MA["MemoryAgent"]
+        AA["AnalyzerAgent"]
+        RA["RetrieverAgent"]
+        REC["RecommenderAgent"]
+        EA["ExplainerAgent"]
+        DA["StaffingDomainAgent"]
+    end
+
+    subgraph Tools["Tool Registry"]
+        KS["KnowledgeSearchTool"]
+        CRM["CRMTool"]
+        MT["MemoryTool"]
+        BR["BusinessRuleTool"]
+        DE["DraftEmailTool"]
+    end
+
+    subgraph Stores["Shared Stores"]
+        KB["KnowledgeBase / ChromaDB"]
+        DB["SQLite CRM"]
+        MS["MemoryStore"]
+        RULES["business_rules.yaml"]
+    end
+
+    HR["Human Review Gate"]
+    LEARN["Memory Learning"]
+
+    WS --> PA
+    PA --> WO
+    WO --> MA & AA & RA & REC & EA & DA
+    RA --> KS & CRM & BR
+    MA --> MT
+    KS --> KB
+    CRM --> DB
+    MT --> MS
+    BR --> RULES
+    REC --> EA
+    EA --> HR
+    WR --> LEARN
+    LEARN --> MS
+```
+
+### Workflow state machine
+
+Explicit transitions (no nested function calls):
+
+| State | Description |
+|-------|-------------|
+| `INGESTED` | Raw payload received |
+| `PREPROCESSED` | Format detection + enrichment |
+| `ANALYZED` | Business context, risks, opportunities |
+| `RETRIEVED` | Knowledge + CRM + rules |
+| `RECOMMENDED` | Next Best Actions |
+| `EXPLAINED` | Executive narrative |
+| `WAITING_REVIEW` | Human gate |
+| `APPROVED` → `LEARNING` → `COMPLETED` | Post-review learning loop |
+
+### Dynamic routing
+
+| Route | When | Agents run |
+|-------|------|------------|
+| **full** | Standard meeting notes / email | memory → analyzer → retriever → recommender → explainer |
+| **fast_faq** | Short FAQ-style question | retriever → explainer |
+| **deep** | Low confidence (negative sentiment, sparse context) | Full pipeline with extra memory bias |
+| **staffing** | `domain: staffing` | memory → staffing_domain → analyzer → retriever → recommender → explainer |
+
+### Agent trace
+
+Every `/workflow/start` response includes `explanation_bundle.agent_trace`:
+
+```json
+{
+  "agent_trace": [
+    {
+      "agent_name": "analyzer",
+      "execution_order": 2,
+      "duration_ms": 12.4,
+      "confidence": 0.78,
+      "decision": "analyzed",
+      "reason": "Detected 5 signals; 3 information gaps",
+      "tool_usage": []
+    }
+  ],
+  "orchestration": {
+    "route": "full",
+    "routing_reason": "Standard enterprise interaction pipeline"
+  }
+}
+```
+
+The frontend visualizes this trace in the **Agent orchestration trace** panel.
+
+### How to add a new agent
+
+1. Create `backend/orchestration/agents/my_agent.py` extending `BaseAgent`
+2. Register with one line in `register_default_agents()`:
+
+```python
+AgentRegistry.register("my_agent", MyAgent(engine))
+```
+
+3. Add the agent name to a workflow in `register_default_workflows()`
+
+### How to register a tool
+
+```python
+tool_registry.register(MyTool(dependency))
+```
+
+Tools implement `BaseTool`: `execute()`, `metadata()`, `health()`.
+
+### How to add a domain (Staffing example)
+
+Without modifying `PlannerAgent`:
+
+1. Add rules to `backend/config/business_rules.yaml`
+2. Add knowledge to `backend/knowledge/*.yaml`
+3. Create `backend/orchestration/domains/staffing/agent.py`
+4. Register in `register_default_agents()` and `register_default_workflows()`
+
+```bash
+curl -s -X POST http://localhost:8000/workflow/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "CUST-STAFF-01",
+    "domain": "staffing",
+    "interaction_text": "Urgent RN req — need submittals by Friday. Background check pending."
+  }' | python3 -m json.tool
+```
+
+### Project structure (Layer 3)
+
+```
+backend/
+├── ai_platform.py          # Backward-compatible facade + decision engine
+├── main.py                 # Unchanged API endpoints
+├── orchestration/
+│   ├── agents/             # Analyzer, Retriever, Recommender, Explainer, Memory
+│   ├── tools/              # KnowledgeSearch, CRM, Memory, BusinessRules, DraftEmail
+│   ├── registries/         # AgentRegistry, ToolRegistry, WorkflowRegistry
+│   ├── workflow/           # State machine + WorkflowOrchestrator
+│   └── domains/staffing/   # Domain extension example
+└── tests/test_orchestration.py
+```
+
+### Run tests
+
+```bash
+cd backend
+python -m unittest tests.test_orchestration -v
+```
+
+Tests cover: workflow transitions, agent/tool registries, planner orchestration, agent trace, dynamic routing, and staffing domain.
+
+### Backward compatibility
+
+All existing endpoints, response shapes, retrieval, memory, business rules, Ollama integration, and human review remain unchanged. Layer 3 refactors **internally** — clients and the frontend continue to work without modification (with added trace visualization).

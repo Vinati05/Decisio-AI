@@ -29,3 +29,17 @@ customer_success:
       and escalate internally with customer consent. Recovery plans executed within
       10 days reduce churn probability by ~18%.
     tags: ["recovery", "at-risk", "adoption"]
+
+staffing:
+  - id: "PB-STAFF-01"
+    title: "Accelerated submittal pipeline"
+    excerpt: >
+      For urgent reqs, pre-screen candidates against compliance checklist and submit
+      within 24 hours. Clients with submittals in 48h show 31% higher fill rates.
+    tags: ["submittal", "pipeline", "fill-rate"]
+  - id: "PB-STAFF-02"
+    title: "Compliance fast-track"
+    excerpt: >
+      Initiate background checks and credential verification on first qualified
+      submittal. Delays beyond 5 business days correlate with 22% req cancellation.
+    tags: ["compliance", "background-check", "credential"]

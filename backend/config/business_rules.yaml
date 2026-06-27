@@ -34,3 +34,19 @@ domains:
         past_rejection_penalty: -0.08
         min_clamped_confidence: 0.35
         max_clamped_confidence: 0.95
+
+  staffing:
+    min_relevance_score: 0.48
+    base_confidence:
+      submittal: 0.81
+      compliance: 0.86
+      client_alignment: 0.79
+      qualification: 0.74
+    rules:
+      time_to_fill_alert_days: 21
+      sentiment_risk_flag: ["negative", "mixed"]
+      weights:
+        past_approval_bias: 0.05
+        past_rejection_penalty: -0.09
+        min_clamped_confidence: 0.38
+        max_clamped_confidence: 0.96

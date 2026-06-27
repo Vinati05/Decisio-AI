@@ -1020,6 +1020,32 @@ class PlannerAgent:
             
         self.retriever = RetrieverAgent(self.kb, self.crm_sim)
 
+        # Layer 3: orchestration engine (Planner delegates — no direct tool imports)
+        self._init_orchestration()
+
+    def _init_orchestration(self) -> None:
+        try:
+            from orchestration.registries.agents import register_default_agents
+            from orchestration.registries.tools import register_default_tools
+            from orchestration.registries.workflows import register_default_workflows
+            from orchestration.workflow.orchestrator import WorkflowOrchestrator
+
+            register_default_workflows()
+            self.tool_registry = register_default_tools(
+                knowledge_base=self.kb,
+                crm_simulator=self.crm_sim,
+                memory_store=self.memory,
+                business_rules=self.rules,
+            )
+            register_default_agents(engine=self, tool_registry=self.tool_registry)
+            self.orchestrator = WorkflowOrchestrator(
+                engine=self,
+                tool_registry=self.tool_registry,
+            )
+        except ImportError:
+            self.tool_registry = None  # type: ignore[assignment]
+            self.orchestrator = None
+
     def refresh_llm_health(self) -> Dict[str, Any]:
         """Check Ollama once at startup and on demand via the health endpoint."""
         self._last_llm_health = self.llm.health_check()
@@ -1043,6 +1069,13 @@ class PlannerAgent:
         }
 
     def run_workflow(self, payload: Dict[str, Any]) -> WorkflowStartResult:
+        """Delegate to WorkflowOrchestrator (Layer 3). Preserves API response shape."""
+        if getattr(self, "orchestrator", None) is not None:
+            return self.orchestrator.run(payload)
+        return self._run_workflow_legacy(payload)
+
+    def _run_workflow_legacy(self, payload: Dict[str, Any]) -> WorkflowStartResult:
+        """Fallback if orchestration package is unavailable."""
         customer_input = CustomerInteraction.from_payload(payload)
         customer_id = customer_input.customer_id
         domain = customer_input.domain
@@ -1058,28 +1091,21 @@ class PlannerAgent:
         )
         self.memory.put_interaction(interaction)
 
-        # Retrieve dynamic context with RetrieverAgent
         query_text = raw_text
         min_rel = self.rules.get(domain, {}).get("min_relevance_score", 0.50)
-        
+
         if hasattr(self, "retriever"):
             org_context = self.retriever.retrieve(
                 query=query_text,
                 customer_id=customer_id,
                 domain=domain,
-                min_relevance=min_rel
+                min_relevance=min_rel,
             )
         else:
             org_context = self.knowledge.get_context(domain)
 
-        # LLM-enhanced analysis is best-effort; deterministic analysis remains
-        # the reliable fallback so ingestion, retrieval, recommendations,
-        # memory, human review, and success metrics keep working.
         analysis = self._analyze_with_llm(interaction, org_context, domain)  # type: ignore[arg-type]
 
-        # Ollama can propose richer next-best actions, but final actions still
-        # pass through the planner's evidence, confidence, memory, and citation
-        # machinery. Any LLM issue falls back to the proven rule templates.
         next_best_actions = self._recommend_with_llm(
             interaction=interaction,
             org_context=org_context,
@@ -1138,10 +1164,7 @@ class PlannerAgent:
                 "confidence_interpretation": "Higher means the recommendation is closer to playbook patterns found in the mock enterprise knowledge.",
             },
             "why_next_best": [
-                {
-                    "title": nba.title,
-                    "why": nba.rationale,
-                }
+                {"title": nba.title, "why": nba.rationale}
                 for nba in next_best_actions
             ],
             "success_metrics": success_metrics,
