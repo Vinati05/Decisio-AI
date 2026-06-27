@@ -10,6 +10,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple
+try:
+    from .llm_client import OllamaClient
+except ImportError:  # pragma: no cover - top-level import path used in Docker
+    from llm_client import OllamaClient
 
 
 DecisionDomain = Literal[
@@ -978,6 +982,23 @@ class PlannerAgent:
         self.knowledge = knowledge
         self.memory = memory
         self.rules = load_business_rules()
+        # Ollama is an enhancement layer only. The planner remains fully usable
+        # when the local model is unavailable because analysis falls back to
+        # deterministic rule logic below.
+        self.llm = OllamaClient(model=os.getenv("OLLAMA_MODEL", "llama3.2"))
+        self.llm_available = False
+        self._last_llm_health: Dict[str, Any] = {}
+        self._last_analysis_metadata: Dict[str, Any] = {
+            "engine": "rule_based",
+            "model": None,
+            "fallback_used": False,
+        }
+        self._last_recommendation_metadata: Dict[str, Any] = {
+            "engine": "rule_based",
+            "model": None,
+            "fallback_used": False,
+        }
+        self.refresh_llm_health()
         
         # SQLite CRM Simulator
         self.crm_sim = SQLiteCRMSimulator()
@@ -998,6 +1019,28 @@ class PlannerAgent:
             self.kb = knowledge
             
         self.retriever = RetrieverAgent(self.kb, self.crm_sim)
+
+    def refresh_llm_health(self) -> Dict[str, Any]:
+        """Check Ollama once at startup and on demand via the health endpoint."""
+        self._last_llm_health = self.llm.health_check()
+        self.llm_available = bool(
+            self._last_llm_health.get("ok")
+            and self._last_llm_health.get("model_available")
+        )
+        if self.llm_available:
+            print(
+                f"[Ollama] Planner enabled host={self.llm.host} model={self.llm.model}"
+            )
+        else:
+            print(
+                f"[Ollama] Planner disabled; using rule-based fallback. "
+                f"host={self.llm.host} model={self.llm.model} "
+                f"reason={self._last_llm_health.get('error') or 'model not available'}"
+            )
+        return {
+            **self._last_llm_health,
+            "planner_enabled": self.llm_available,
+        }
 
     def run_workflow(self, payload: Dict[str, Any]) -> WorkflowStartResult:
         customer_input = CustomerInteraction.from_payload(payload)
@@ -1029,10 +1072,15 @@ class PlannerAgent:
         else:
             org_context = self.knowledge.get_context(domain)
 
-        # Enriched ingestion context drives heuristics below (participants, topics, open questions).
-        analysis = self._analyze_business_context(interaction, org_context, domain)  # type: ignore[arg-type]
+        # LLM-enhanced analysis is best-effort; deterministic analysis remains
+        # the reliable fallback so ingestion, retrieval, recommendations,
+        # memory, human review, and success metrics keep working.
+        analysis = self._analyze_with_llm(interaction, org_context, domain)  # type: ignore[arg-type]
 
-        next_best_actions = self._recommend_next_best_actions(
+        # Ollama can propose richer next-best actions, but final actions still
+        # pass through the planner's evidence, confidence, memory, and citation
+        # machinery. Any LLM issue falls back to the proven rule templates.
+        next_best_actions = self._recommend_with_llm(
             interaction=interaction,
             org_context=org_context,
             analysis=analysis,
@@ -1083,6 +1131,8 @@ class PlannerAgent:
                 "email_subject": enrichment.email_subject,
             },
             "natural_language_summary": self._make_natural_language_summary(analysis, next_best_actions, success_metrics),
+            "analysis_engine": self._last_analysis_metadata,
+            "recommendation_engine": self._last_recommendation_metadata,
             "confidence": {
                 "overall": round(self._overall_confidence(next_best_actions), 2),
                 "confidence_interpretation": "Higher means the recommendation is closer to playbook patterns found in the mock enterprise knowledge.",
@@ -1623,6 +1673,182 @@ class PlannerAgent:
             missing_information=_dedupe(missing),
         )
 
+    def _analyze_with_llm(
+        self,
+        interaction: IngestedInteraction,
+        org_context: OrgContext,
+        domain: DecisionDomain,
+    ) -> OpportunityRisk:
+        """Enhance analysis with Ollama, then fall back to deterministic rules.
+
+        The LLM is allowed to improve business nuance and explainability, but it
+        is never required for correctness. Any transport error, missing local
+        model, malformed JSON, or unusable schema routes back to the existing
+        rule-based analyzer.
+        """
+        if not self.llm_available:
+            print("[Ollama] Analysis skipped; planner health check is unavailable.")
+            return self._fallback_analysis(
+                interaction=interaction,
+                org_context=org_context,
+                domain=domain,
+                reason=self._llm_unavailable_reason(),
+            )
+
+        system_prompt = (
+            "You are a senior B2B decision intelligence analyst. "
+            "Return strict JSON only. The JSON object must contain exactly these "
+            "top-level keys: opportunities, risks, missing_information. Each value "
+            "must be a non-empty array of concise, evidence-grounded strings. "
+            "Do not include markdown or prose outside the JSON object."
+        )
+        user_prompt = self._build_llm_analysis_prompt(interaction, org_context, domain)
+
+        try:
+            llm_result = self.llm.structured_generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            analysis = self._coerce_llm_analysis(llm_result)
+            if analysis:
+                print(
+                    f"[Ollama] Success analysis model={self.llm.model} "
+                    f"opportunities={len(analysis.opportunities)} risks={len(analysis.risks)}"
+                )
+                self._last_analysis_metadata = {
+                    "engine": "ollama",
+                    "model": self.llm.model,
+                    "fallback_used": False,
+                    "explanation": (
+                        "Ollama produced structured analysis; retrieval, recommendation scoring, "
+                        "memory, and success metrics stayed on the existing deterministic planner."
+                    ),
+                }
+                return analysis
+
+            print("[Ollama] Analysis returned JSON but schema was not usable; falling back.")
+            return self._fallback_analysis(
+                interaction=interaction,
+                org_context=org_context,
+                domain=domain,
+                reason="Ollama returned no valid structured analysis.",
+            )
+        except Exception as exc:
+            print(f"[Ollama] Analysis failed with exception; falling back: {exc}")
+            return self._fallback_analysis(
+                interaction=interaction,
+                org_context=org_context,
+                domain=domain,
+                reason=f"Ollama analysis failed: {exc}",
+            )
+
+    def _build_llm_analysis_prompt(
+        self,
+        interaction: IngestedInteraction,
+        org_context: OrgContext,
+        domain: DecisionDomain,
+    ) -> str:
+        enrichment = interaction.enriched_context
+        lessons = self.memory.get_lessons_for_customer(interaction.customer_id, domain)
+
+        def _compact_docs(items: List[Dict[str, Any]], label: str) -> str:
+            if not items:
+                return f"- {label}: none retrieved"
+            lines = []
+            for item in items[:4]:
+                title = item.get("title") or item.get("id") or item.get("timestamp") or label
+                excerpt = item.get("excerpt") or item.get("text") or ""
+                relevance = item.get("relevance")
+                rel = f" relevance={relevance}" if relevance is not None else ""
+                lines.append(f"- {label}: {title}{rel} | {excerpt[:300]}")
+            return "\n".join(lines)
+
+        return f"""
+Domain: {domain}
+Customer ID: {interaction.customer_id}
+
+Interaction:
+{interaction.canonical_text[:2500]}
+
+Ingestion enrichment:
+- detected_format: {enrichment.detected_format}
+- source_type: {enrichment.source_type}
+- participants: {enrichment.participants}
+- topics: {enrichment.topics}
+- action_items_mentioned: {enrichment.action_items_mentioned}
+- sentiment: {enrichment.sentiment}
+- open_questions: {enrichment.open_questions}
+
+Retrieved enterprise context:
+{_compact_docs(org_context.knowledge_articles, "knowledge_article")}
+{_compact_docs(org_context.playbooks, "playbook")}
+{_compact_docs(org_context.product_docs, "product_doc")}
+{_compact_docs(org_context.crm_history, "crm_event")}
+
+Past lessons and human feedback:
+{lessons[:5]}
+
+Task:
+Identify business opportunities, risks, and missing information for the analysis step only.
+Ground claims in the interaction, enrichment, retrieved context, CRM history, or past lessons.
+Prefer specific enterprise language over generic advice.
+""".strip()
+
+    def _coerce_llm_analysis(self, llm_result: Optional[Dict[str, Any]]) -> Optional[OpportunityRisk]:
+        if not isinstance(llm_result, dict):
+            return None
+
+        def _clean_list(key: str) -> List[str]:
+            raw_value = llm_result.get(key)
+            if not isinstance(raw_value, list):
+                return []
+            cleaned = []
+            for item in raw_value:
+                if isinstance(item, str) and item.strip():
+                    cleaned.append(item.strip())
+            return cleaned[:8]
+
+        opportunities = _clean_list("opportunities")
+        risks = _clean_list("risks")
+        missing = _clean_list("missing_information")
+        if not opportunities or not risks or not missing:
+            return None
+
+        return OpportunityRisk(
+            opportunities=opportunities,
+            risks=risks,
+            missing_information=missing,
+        )
+
+    def _llm_unavailable_reason(self) -> str:
+        if self._last_llm_health.get("ok") and not self._last_llm_health.get("model_available"):
+            return (
+                f"Ollama is reachable at {self.llm.host}, but model '{self.llm.model}' "
+                "was not listed. Run `ollama pull llama3.2` or set OLLAMA_MODEL."
+            )
+        return (
+            f"Ollama is unavailable at {self.llm.host}: "
+            f"{self._last_llm_health.get('error') or self.llm.last_error or 'health check failed'}"
+        )
+
+    def _fallback_analysis(
+        self,
+        interaction: IngestedInteraction,
+        org_context: OrgContext,
+        domain: DecisionDomain,
+        reason: str,
+    ) -> OpportunityRisk:
+        print(f"[Ollama] Analysis fallback reason: {reason}")
+        self._last_analysis_metadata = {
+            "engine": "rule_based_fallback",
+            "model": self.llm.model,
+            "host": self.llm.host,
+            "fallback_used": True,
+            "fallback_reason": reason,
+            "explanation": "Used the existing deterministic analyzer to preserve workflow reliability.",
+        }
+        return self._analyze_business_context(interaction, org_context, domain)
+
     def _build_evidence_pool(self, org_context: OrgContext) -> List[EvidenceItem]:
         evidence_pool: List[EvidenceItem] = []
 
@@ -1733,6 +1959,314 @@ class PlannerAgent:
         max_val = weights.get("max_clamped_confidence", 0.92)
         
         return round(max(min_val, min(max_val, raw)), 2)
+
+    def _recommend_with_llm(
+        self,
+        interaction: IngestedInteraction,
+        org_context: OrgContext,
+        analysis: OpportunityRisk,
+        customer_id: str,
+        domain: DecisionDomain,
+    ) -> List[NextBestAction]:
+        """Generate next-best actions with Ollama, then preserve planner guardrails.
+
+        Ollama can improve action specificity and wording, but the platform keeps
+        deterministic safeguards: evidence is selected locally, confidence is
+        calibrated locally, memory bias is applied locally, and every invalid or
+        unavailable LLM response falls back to `_recommend_next_best_actions`.
+        """
+        if not self.llm_available:
+            print("[Ollama] Recommendations skipped; planner health check is unavailable.")
+            return self._fallback_recommendations(
+                interaction=interaction,
+                org_context=org_context,
+                analysis=analysis,
+                customer_id=customer_id,
+                domain=domain,
+                reason=self._llm_unavailable_reason(),
+            )
+
+        system_prompt = (
+            "You are a senior B2B decision intelligence planner. Return strict "
+            "JSON only. The JSON object must contain a key named next_best_actions. "
+            "The value must be a list of 2 to 4 objects. Each object must include "
+            "title, summary, rationale, keywords, recommended_next_questions, and "
+            "confidence. Use only the supplied interaction, analysis, evidence, "
+            "memory, and business rules. Do not include markdown or prose outside JSON."
+        )
+        user_prompt = self._build_llm_recommendation_prompt(
+            interaction=interaction,
+            org_context=org_context,
+            analysis=analysis,
+            customer_id=customer_id,
+            domain=domain,
+        )
+
+        try:
+            llm_result = self.llm.structured_generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            actions = self._coerce_llm_recommendations(
+                llm_result=llm_result,
+                interaction=interaction,
+                org_context=org_context,
+                analysis=analysis,
+                customer_id=customer_id,
+                domain=domain,
+            )
+            if actions:
+                print(
+                    f"[Ollama] Success recommendations model={self.llm.model} "
+                    f"actions={len(actions)}"
+                )
+                self._last_recommendation_metadata = {
+                    "engine": "ollama",
+                    "model": self.llm.model,
+                    "fallback_used": False,
+                    "explanation": (
+                        "Ollama proposed next-best actions; evidence linking, confidence calibration, "
+                        "memory bias, citations, success metrics, and human review stayed deterministic."
+                    ),
+                }
+                return actions
+
+            print("[Ollama] Recommendations returned JSON but schema was not usable; falling back.")
+            return self._fallback_recommendations(
+                interaction=interaction,
+                org_context=org_context,
+                analysis=analysis,
+                customer_id=customer_id,
+                domain=domain,
+                reason="Ollama returned no valid structured recommendations.",
+            )
+        except Exception as exc:
+            print(f"[Ollama] Recommendations failed with exception; falling back: {exc}")
+            return self._fallback_recommendations(
+                interaction=interaction,
+                org_context=org_context,
+                analysis=analysis,
+                customer_id=customer_id,
+                domain=domain,
+                reason=f"Ollama recommendation failed: {exc}",
+            )
+
+    def _build_llm_recommendation_prompt(
+        self,
+        interaction: IngestedInteraction,
+        org_context: OrgContext,
+        analysis: OpportunityRisk,
+        customer_id: str,
+        domain: DecisionDomain,
+    ) -> str:
+        evidence_pool = self._build_evidence_pool(org_context)
+        lessons = self.memory.get_lessons_for_customer(customer_id, domain)
+        domain_rules = self.rules.get(domain, {}) if hasattr(self, "rules") else {}
+        enrichment = interaction.enriched_context
+
+        evidence_lines = []
+        for evidence in evidence_pool[:10]:
+            evidence_lines.append(
+                f"- {evidence.source} | {evidence.label} | relevance={evidence.relevance:.2f} | "
+                f"{evidence.excerpt[:300]}"
+            )
+        evidence_text = "\n".join(evidence_lines) if evidence_lines else "- none retrieved"
+
+        return f"""
+Domain: {domain}
+Customer ID: {customer_id}
+
+Interaction:
+{interaction.canonical_text[:2500]}
+
+Ingestion enrichment:
+- participants: {enrichment.participants}
+- topics: {enrichment.topics}
+- action_items_mentioned: {enrichment.action_items_mentioned}
+- sentiment: {enrichment.sentiment}
+- open_questions: {enrichment.open_questions}
+
+Structured analysis:
+- opportunities: {analysis.opportunities}
+- risks: {analysis.risks}
+- missing_information: {analysis.missing_information}
+
+Retrieved evidence candidates:
+{evidence_text}
+
+Past lessons and human feedback:
+{lessons[:5]}
+
+Business rules for this domain:
+{str(domain_rules)[:2000]}
+
+Task:
+Recommend 2 to 4 next-best actions that are specific, executable, and safe for a human-in-the-loop workflow.
+Every action should map to retrieved evidence or clearly explain what missing information it resolves.
+Use confidence as a decimal from 0.40 to 0.98; the backend will recalibrate it using evidence and memory.
+Use keywords that help match the action to evidence, such as map, champion, security, reporting, recovery, usage, renewal, stakeholder, or integration.
+""".strip()
+
+    def _coerce_llm_recommendations(
+        self,
+        llm_result: Optional[Dict[str, Any]],
+        interaction: IngestedInteraction,
+        org_context: OrgContext,
+        analysis: OpportunityRisk,
+        customer_id: str,
+        domain: DecisionDomain,
+    ) -> List[NextBestAction]:
+        if not isinstance(llm_result, dict):
+            return []
+
+        raw_actions = (
+            llm_result.get("next_best_actions")
+            or llm_result.get("actions")
+            or llm_result.get("items")
+        )
+        if not isinstance(raw_actions, list):
+            return []
+
+        text = self._analysis_text(interaction)
+        evidence_pool = self._build_evidence_pool(org_context)
+        memory_bias = self._memory_bias_factors(customer_id, domain)
+        missing_count = len(analysis.missing_information)
+        domain_rules = self.rules.get(domain, {}) if hasattr(self, "rules") else {}
+        bc = domain_rules.get("base_confidence", {})
+
+        actions: List[NextBestAction] = []
+        for raw in raw_actions[:4]:
+            if not isinstance(raw, dict):
+                continue
+
+            title = str(raw.get("title") or "").strip()
+            summary = str(raw.get("summary") or "").strip()
+            rationale_base = str(raw.get("rationale") or "").strip()
+            if not title or not summary:
+                continue
+
+            keywords = self._normalize_action_keywords(raw, title, summary, rationale_base)
+            selected_evidence = self._select_evidence_for_action(evidence_pool, text, keywords, count=2)
+            memory_key = str(raw.get("memory_key") or self._infer_memory_key(title, summary, rationale_base))
+            mem_boost = memory_bias.get(memory_key, 0.0)
+            base_confidence = self._llm_base_confidence(
+                raw_confidence=raw.get("confidence"),
+                fallback=bc.get(memory_key, bc.get("qualification", 0.76)),
+            )
+            confidence = self._calibrate_confidence(
+                base=base_confidence,
+                evidence=selected_evidence,
+                missing_count=missing_count,
+                memory_boost=mem_boost,
+                domain=domain,
+            )
+
+            citations = []
+            for evidence in selected_evidence:
+                if evidence.source != "none" and evidence.relevance is not None:
+                    citations.append(f"{evidence.source.split(':')[-1]} (Relevance: {evidence.relevance:.2f})")
+                elif evidence.source != "none":
+                    citations.append(evidence.source.split(":")[-1])
+            citation_str = " Grounded in: " + ", ".join(citations) + "." if citations else ""
+            rationale = f"{rationale_base or 'LLM-proposed action aligned to analysis and retrieved context.'}{citation_str}"
+
+            questions = raw.get("recommended_next_questions")
+            if not isinstance(questions, list):
+                questions = []
+            clean_questions = [str(q).strip() for q in questions if str(q).strip()]
+            if not clean_questions:
+                clean_questions = [
+                    analysis.missing_information[0] if analysis.missing_information else "What are the constraints?",
+                    analysis.missing_information[1] if len(analysis.missing_information) > 1 else "Who are the stakeholders?",
+                ]
+
+            actions.append(
+                NextBestAction(
+                    action_id=str(uuid.uuid4()),
+                    title=title[:140],
+                    summary=summary[:500],
+                    confidence=confidence,
+                    evidence=selected_evidence,
+                    rationale=rationale[:1200],
+                    recommended_next_questions=clean_questions[:3],
+                )
+            )
+
+        return actions if len(actions) >= 2 else []
+
+    def _normalize_action_keywords(
+        self,
+        raw_action: Dict[str, Any],
+        title: str,
+        summary: str,
+        rationale: str,
+    ) -> List[str]:
+        raw_keywords = raw_action.get("keywords")
+        keywords: List[str] = []
+        if isinstance(raw_keywords, list):
+            keywords.extend(str(k).strip().lower() for k in raw_keywords if str(k).strip())
+        elif isinstance(raw_keywords, str):
+            keywords.extend(k.strip().lower() for k in re.split(r"[,;]", raw_keywords) if k.strip())
+
+        blob = f"{title} {summary} {rationale}".lower()
+        keywords.extend(w for w in re.findall(r"[a-z0-9_-]+", blob) if len(w) >= 4)
+
+        seen: set[str] = set()
+        out: List[str] = []
+        for keyword in keywords:
+            if keyword not in seen:
+                seen.add(keyword)
+                out.append(keyword)
+        return out[:12] or ["stakeholder", "outcome"]
+
+    @staticmethod
+    def _infer_memory_key(title: str, summary: str, rationale: str) -> str:
+        blob = f"{title} {summary} {rationale}".lower()
+        if "map" in blob or "action plan" in blob:
+            return "map"
+        if "champion" in blob or "stakeholder" in blob:
+            return "champion"
+        if "security" in blob or "sso" in blob or "soc2" in blob:
+            return "security"
+        if "recovery" in blob or "churn" in blob or "at-risk" in blob:
+            return "recovery"
+        return "qualification"
+
+    @staticmethod
+    def _llm_base_confidence(raw_confidence: Any, fallback: float) -> float:
+        try:
+            confidence = float(raw_confidence)
+        except (TypeError, ValueError):
+            return fallback
+        if confidence > 1:
+            confidence = confidence / 100
+        return max(0.40, min(0.98, confidence))
+
+    def _fallback_recommendations(
+        self,
+        interaction: IngestedInteraction,
+        org_context: OrgContext,
+        analysis: OpportunityRisk,
+        customer_id: str,
+        domain: DecisionDomain,
+        reason: str,
+    ) -> List[NextBestAction]:
+        print(f"[Ollama] Recommendation fallback reason: {reason}")
+        self._last_recommendation_metadata = {
+            "engine": "rule_based_fallback",
+            "model": self.llm.model,
+            "host": self.llm.host,
+            "fallback_used": True,
+            "fallback_reason": reason,
+            "explanation": "Used deterministic recommendation templates with local evidence and confidence scoring.",
+        }
+        return self._recommend_next_best_actions(
+            interaction=interaction,
+            org_context=org_context,
+            analysis=analysis,
+            customer_id=customer_id,
+            domain=domain,
+        )
 
     def _recommend_next_best_actions(
         self,

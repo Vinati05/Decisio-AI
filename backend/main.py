@@ -33,6 +33,12 @@ def root():
     }
 
 
+@app.get("/ollama/health")
+def ollama_health() -> JSONResponse:
+    """Debug endpoint for host/container Ollama connectivity."""
+    return JSONResponse(content=planner.refresh_llm_health())
+
+
 def _to_jsonable(obj: Any) -> Any:
     # Dataclasses have __dict__ but nested dataclasses/lists need recursion.
     if hasattr(obj, "__dict__") and not isinstance(obj, (str, int, float, bool, dict, list)):
@@ -225,5 +231,4 @@ def planner_run() -> Dict[str, Any]:
         "signal": "next-best-action",
         "signal_label": "Needs review",
     }
-
 

@@ -207,3 +207,69 @@ docker compose up --build
 ```
 On startup, the backend automatically initializes and seeds `crm.db` and downloads/sets up the semantic search embeddings model. If the environment does not support compiling/downloading large machine learning wheels, it falls back to the lightweight built-in TF-IDF engine.
 
+---
+
+## Ollama Local LLM Enhancement
+
+The planner can now enhance the business analysis step and Next Best Action recommendations with a local Ollama model, while keeping the existing rule-based analyzer and recommendation templates as reliable fallbacks. By default, `PlannerAgent` uses `llama3.2`; choose another model with:
+
+```bash
+OLLAMA_MODEL=mistral docker compose up --build
+```
+
+If Ollama is not running, the model is not pulled, the container cannot reach the host Ollama daemon, or the model returns malformed structured output, the workflow automatically falls back to deterministic rule-based analysis and recommendations. The response includes `explanation_bundle.analysis_engine` and `explanation_bundle.recommendation_engine` so demos can show whether Ollama or the fallback path produced each stage.
+
+Even when Ollama proposes recommendations, Decisio-AI still performs local evidence linking, confidence calibration, memory biasing, citation formatting, success metric calculation, and human-in-the-loop gating.
+
+For local enhancement, install and run Ollama separately, then pull the default model:
+
+```bash
+ollama pull llama3.2
+ollama serve
+```
+
+When running the backend in Docker and Ollama on the host, set `OLLAMA_HOST` if needed:
+
+```bash
+OLLAMA_HOST=http://host.docker.internal:11434 docker compose up --build
+```
+
+Fallback behavior means this is optional; `docker compose up --build` remains fully runnable without Ollama.
+
+### Ollama troubleshooting
+
+Check host Ollama first:
+
+```bash
+ollama list
+ollama pull llama3.2
+ollama serve
+```
+
+Then verify backend connectivity:
+
+```bash
+curl -s http://localhost:8000/ollama/health | python3 -m json.tool
+```
+
+Expected healthy response fields:
+
+```json
+{
+  "ok": true,
+  "model": "llama3.2",
+  "model_available": true,
+  "planner_enabled": true
+}
+```
+
+Useful backend logs:
+
+```text
+[Ollama] Health check success host=http://host.docker.internal:11434 model=llama3.2 model_available=True
+[Ollama] Planner enabled host=http://host.docker.internal:11434 model=llama3.2
+[Ollama] Success analysis model=llama3.2
+[Ollama] Success recommendations model=llama3.2
+```
+
+If you see `[Ollama] Connection failed`, confirm Ollama is running on the host and that Docker Compose includes `OLLAMA_HOST=http://host.docker.internal:11434`. If `model_available` is false, run `ollama pull llama3.2` or set `OLLAMA_MODEL` to a model shown by `ollama list`.
